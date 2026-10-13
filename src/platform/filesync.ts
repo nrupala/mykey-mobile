@@ -14,13 +14,16 @@
 
 /** File flows, honest about what each platform can really do:
  *
- * - Sync folder: the File System Access API (Chromium desktop /
- *   Android Chrome) lets the user pick a folder — e.g. inside their
- *   own cloud drive's local folder — and the app reads/writes
- *   "vault.mykey" there. The handle is user-granted and revocable;
- *   permission is re-checked on every use. Where the API does not
- *   exist, the app offers explicit download/upload instead and says
- *   so. There is no background sync and no server: the vault file is
+ * - Sync folder: the File System Access API (desktop Chromium)
+ *   lets the user pick a folder — e.g. inside their own cloud
+ *   drive's local folder — and the app reads/writes "vault.mykey"
+ *   there. The handle is user-granted and revocable; permission is
+ *   re-checked on every use. The Android app has no directory
+ *   picker (the WebView does not provide one), so there sync is
+ *   the explicit file flow: save the vault file into your cloud
+ *   app, open the newer file on the other device. The app labels
+ *   each platform's flow in plain words and never pretends.
+ *   There is no background sync and no server: the vault file is
  *   ciphertext everywhere it goes, matching the desktop's
  *   zero-knowledge sync design.
  * - Export on the Android app writes the file to the app cache and
@@ -33,11 +36,37 @@ import { Share } from "@capacitor/share";
 import { VAULT_FILENAME } from "../brand.js";
 import { b64encode, utf8Decode } from "../vault/encoding.js";
 
+/** What this runtime can actually do, detected — never assumed.
+ *
+ * Folder sync needs the File System Access directory picker. That
+ * API exists in desktop Chromium browsers; the Android WebView
+ * that hosts the Capacitor app does not provide it (checked here
+ * at runtime, and the native platform is excluded regardless, so
+ * the app can never offer a folder it cannot write to). Where
+ * folder sync is unavailable the honest flow is explicit file
+ * save/open through the system share sheet and file pickers. */
+export interface FileAccessCaps {
+  native: boolean;
+  directoryPicker: boolean;
+}
+
+export function detectFileAccessCaps(): FileAccessCaps {
+  return {
+    native: Capacitor.isNativePlatform(),
+    directoryPicker:
+      typeof window !== "undefined" &&
+      typeof (window as any).showDirectoryPicker === "function",
+  };
+}
+
+/** Pure decision, unit-tested: folder sync is offered only where
+ * the directory picker genuinely exists, and never in the app. */
+export function folderSyncOffered(caps: FileAccessCaps): boolean {
+  return !caps.native && caps.directoryPicker;
+}
+
 export function syncFolderSupported(): boolean {
-  return (
-    !Capacitor.isNativePlatform() &&
-    typeof (window as any).showDirectoryPicker === "function"
-  );
+  return folderSyncOffered(detectFileAccessCaps());
 }
 
 export async function chooseSyncFolder(): Promise<FileSystemDirectoryHandle | null> {
@@ -127,11 +156,13 @@ export async function exportFile(
 }
 
 /** Read a file the user picks (any platform). */
-export function pickFile(): Promise<{ name: string; bytes: Uint8Array } | null> {
+export function pickFile(
+  accept = ".mykey,.mykeybak,application/json",
+): Promise<{ name: string; bytes: Uint8Array } | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".mykey,.mykeybak,application/json";
+    input.accept = accept;
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return resolve(null);
