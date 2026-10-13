@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyKey — pairing</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="options">
+    <main>
+      <h1>Pair this browser with MyKey</h1>
+      <p>
+        Pairing lets this browser extension fill logins from the
+        MyKey app on this computer. It takes two short steps, and
+        you approve it on the desktop — nothing pairs itself.
+      </p>
+
+      <h2>Step 1 — give the desktop this browser's pairing payload</h2>
+      <p class="fine">
+        On the desktop, in a terminal, run
+        <code>mykey ext-enroll --payload payload.json</code> with this
+        payload saved as the file (or paste it when asked). First,
+        compare: the fingerprint must match on both screens.
+      </p>
+      <p>This browser's fingerprint:</p>
+      <p id="ext-fingerprint" class="fingerprint"></p>
+      <label for="ext-label">A name for this browser (shown on the desktop)</label>
+      <input id="ext-label" type="text" placeholder="e.g. Firefox on the laptop" />
+      <label for="payload">Pairing payload</label>
+      <textarea id="payload" readonly></textarea>
+      <button id="copy-payload" class="small">Copy payload</button>
+
+      <h2>Step 2 — pin the desktop's host key</h2>
+      <p class="fine">
+        On the desktop run <code>mykey ext-host-payload</code> and
+        paste its output here. MyKey checks the fingerprint against
+        the key itself — a payload that lies about its fingerprint
+        is refused.
+      </p>
+      <label for="host-payload">Host payload from the desktop</label>
+      <textarea id="host-payload"></textarea>
+      <button id="pin-host">Pin this host</button>
+      <p id="host-state" role="status" aria-live="polite"></p>
+
+      <h2>Then, once, on the desktop</h2>
+      <ol class="fine">
+        <li><code>mykey ext-set-vault &lt;path to your vault.mykey&gt;</code> — tell the host which vault to serve.</li>
+        <li><code>mykey ext-host-install</code> — let this browser start the host.</li>
+      </ol>
+      <p class="fine">
+        To unpair: <code>mykey ext-revoke</code> on the desktop ends
+        it for good. This browser's key can never be re-approved
+        after a revoke — reset the identity below and pair afresh.
+      </p>
+
+      <h2>Reset this browser's pairing identity</h2>
+      <p class="fine">
+        Makes a brand-new key for this browser. Every existing
+        pairing for the old key stops working.
+      </p>
+      <button id="reset-identity" class="ghost">Reset identity</button>
+
+      <footer class="fine">
+        2351485 ALBERTA INC. · Support: info@aimlds.org
+      </footer>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

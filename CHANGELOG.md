@@ -33,6 +33,38 @@ is Vault v3 (desktop engine 2.2.0).
   changelog pointer. A marked slot waits for the licence / tip
   block if the free-tier ruling lands.
 
+- **Browser extension + autofill** (new sibling package,
+  `extension/`). For Chromium browsers (Chrome/Edge/Brave/…)
+  and Firefox; Safari is out of scope for v1. The extension
+  holds no vault copy: it talks to the desktop app over native
+  messaging, paired by the house key-value pattern (extension
+  id → X25519 public key + scopes + expiry + enabled, approved
+  by a human on the desktop with a fingerprint ceremony).
+  Session traffic is encrypted in transit (X25519 + HKDF,
+  AES-256-GCM per message, replay counters) — a frame capture
+  shows only ciphertext.
+- **Autofill behaviour.** Exact origin matching (scheme + host
+  + port), per-entry "also fill on subdomains" toggle (default
+  off, stored on the desktop), lookalikes never match. Fill is
+  click-only — never on page load, never auto-submit. TOTP fill
+  is a separate explicit action. Save-on-login capture prompts
+  in-page and saves only on a click; payment forms are
+  recognised and never harvested. Clipboard copies follow the
+  house rule (clear after 60–300s, default 60, only if the
+  clipboard still holds the copy; immediate clear on lock).
+- **Leak test gate.** A named suite (`extension/tests/`,
+  including `leak.test.ts` and a real-host integration suite)
+  proves: no plaintext in recorded channel frames, wrong
+  origins get nothing, iframes get nothing, no secrets in
+  console/storage/DOM/message traffic/errors, lock wipes fill
+  ability and caches, revoked/expired pairings are refused,
+  non-login forms are never captured, and the extension makes
+  zero network requests with a minimal permission manifest.
+  Store-ready zips build as CI artifacts
+  (`.github/workflows/extension.yml`).
+- Known v1 limits: no in-field icon, change-password capture
+  not offered yet, desktop pairing screens are CLI-only.
+
 ## [1.2.0] — 2026-10-13
 
 The blob wave: backup packages round-trip through this client.

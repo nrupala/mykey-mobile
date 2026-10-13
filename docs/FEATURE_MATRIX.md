@@ -74,3 +74,20 @@ offered instead.
 | Built-in help ("How MyKey works") | Implemented | Ships inside the app bundle; fully offline. Canonical text lives in the desktop repo (HELP.md); this copy is byte-identical and the PWA CI fails on drift. |
 | Common questions (FAQ) | Implemented | Same canonical-text rule (FAQ.md). Reachable from the locked/welcome screen — before sign-in — and from Settings. |
 | About screen | Implemented | Version (from package.json), seller 2351485 ALBERTA INC., support info@aimlds.org, linked attribution with referral code 101EEK, licence summary, changelog pointer. Licence/tip block slot reserved (free-tier ruling pending — no purchase content yet). |
+
+## Browser extension (sibling package, `extension/`)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Chromium (Chrome/Edge/Brave) + Firefox | Implemented | One TypeScript source, two manifests. Safari is out of scope for v1 (stated plainly in the extension README). Store-ready zips are CI artifacts. |
+| Vault location | Desktop-only, by design | The extension holds no vault copy. It talks to the desktop app over native messaging; the vault never leaves the desktop process unencrypted. |
+| Pairing | Implemented | House key-value pattern: extension id → X25519 public key + scopes (fill, save) + expiry + enabled. Human approves on the desktop after comparing fingerprints; revoked ids can never re-enroll; the extension pins the host key the same way. |
+| Encryption in transit | Implemented | X25519 session agreement from the pairing keys, HKDF-SHA256 session keys per connection, AES-256-GCM per message, strict replay counters. Canonical-JSON byte compatibility with the Python host is pinned by shared known-answer vectors (CI regenerates + diffs). |
+| Origin matching | Implemented, host-authoritative | Scheme + host + port exact. Subdomains only with the per-entry "also fill on subdomains" toggle (default off; the choice is stored in the desktop host store, not in the vault, so the Vault v3 format needed no new field). Lookalike hosts never match. |
+| Fill behaviour | Implemented | Click-only (popup button or Ctrl+Shift+Y). Never on page load, never auto-submit, top frame only, iframes get nothing. TOTP fill is a separate explicit action. In-field icon: deferred to a later version (stated in the README). |
+| Save-on-login capture | Implemented | Detects a successful login submit, prompts in-page (or in the popup after a cross-tab redirect), saves only on a click; updates report what changed. Payment forms are classified and never harvested; change-password capture is deferred in v1. |
+| Generator | Implemented | Same alphabet and 16-character minimum as the desktop. |
+| Clipboard rule | Implemented | Copy clears after the desktop-set time (60–300s, default 60), only when the clipboard still holds that copy (hash-checked, the value itself is never kept); cleared immediately on lock. Chromium clears via an offscreen document; Firefox in the background page. |
+| Lock behaviour | Implemented | Desktop lock or auto-lock ends fills at once; the extension wipes matched-entry caches and any pending save. |
+| Leak test suite | Implemented (merge gate) | Eight named gates (frames, origins, iframes, side channels, lock, revocation/expiry, form capture, zero-network + manifest audit) in `extension/tests/`, half of them also proven against the real Python host in-process and over real pipes. |
+| In-page field icon | Deferred | v1 uses the popup/shortcut only; stated in the README. |

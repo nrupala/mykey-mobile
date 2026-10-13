@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyKey</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header>
+        <h1>MyKey</h1>
+        <button id="lock-btn" class="ghost" hidden>Lock</button>
+      </header>
+      <p id="status-line" role="status" aria-live="polite"></p>
+
+      <section id="unpaired" hidden>
+        <p>
+          This browser is not paired with your desktop MyKey yet.
+          Pairing is a one-time step: you approve it on the desktop,
+          after comparing a fingerprint on both screens.
+        </p>
+        <button id="open-options">Open pairing options</button>
+      </section>
+
+      <section id="connect" hidden>
+        <p>
+          MyKey could not reach the desktop app. Make sure MyKey is
+          installed on this computer and the host is set up
+          (<em>mykey ext-host-install</em>), then try again.
+        </p>
+        <button id="connect-btn">Try again</button>
+      </section>
+
+      <section id="unlock" hidden>
+        <form id="unlock-form">
+          <label for="master">Master password</label>
+          <input
+            id="master"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+          <button type="submit">Unlock</button>
+        </form>
+        <p class="fine">
+          Your master password is sent only to your own desktop app,
+          inside an encrypted channel. It is never stored here.
+        </p>
+      </section>
+
+      <section id="pending-save" hidden>
+        <p id="pending-save-text"></p>
+        <button id="pending-save-yes">Save to MyKey</button>
+        <button id="pending-save-no" class="ghost">Not now</button>
+      </section>
+
+      <section id="matches" hidden>
+        <h2 id="matches-heading">On this site</h2>
+        <ul id="match-list"></ul>
+        <p id="no-matches" class="fine" hidden>
+          No saved login matches this site exactly. MyKey never
+          guesses across similar-looking sites.
+        </p>
+      </section>
+
+      <section id="generate" hidden>
+        <h2>Make a password</h2>
+        <div class="row">
+          <label for="gen-length">Length</label>
+          <input id="gen-length" type="number" min="16" max="64" value="20" />
+          <button id="gen-btn">Generate</button>
+        </div>
+        <p id="gen-output" class="secret" aria-live="polite"></p>
+        <button id="gen-copy" class="ghost" hidden>Copy</button>
+      </section>
+
+      <footer class="fine">
+        2351485 ALBERTA INC. · Support: info@aimlds.org
+      </footer>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
