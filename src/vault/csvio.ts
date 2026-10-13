@@ -28,7 +28,9 @@ import type { VaultEntry } from "./vault.js";
  * password set date, so the rotation fields are deliberately not
  * part of this shape: the vault records imported passwords as
  * "date not recorded" (see VaultSession.importEntries). Passkey
- * fields are likewise excluded: CSV import never creates passkeys. */
+ * fields are likewise excluded: CSV import never creates passkeys.
+ * The android_app binding is excluded on the same rule: imports
+ * never create bindings (importEntries writes null). */
 export type ImportRecord = Omit<
   VaultEntry,
   | "id"
@@ -38,6 +40,7 @@ export type ImportRecord = Omit<
   | "rotate_days"
   | "kind"
   | "passkey"
+  | "android_app"
 >;
 export type ConflictPolicy = "skip" | "overwrite" | "keep_both";
 export type CsvFormat = "chromium" | "firefox" | "generic";

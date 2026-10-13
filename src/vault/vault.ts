@@ -89,7 +89,7 @@ export const FORMAT_VERSION = 3;
 export const MIN_MASTER_PASSWORD_LENGTH = 12;
 export const MIN_GENERATED_PASSWORD_LENGTH = 16;
 const VERIFIER_LABEL = "vault-verifier-v3";
-const METADATA_FIELDS = ["service", "username", "url", "tags", "favourite", "created", "updated", "kind"] as const;
+const METADATA_FIELDS = ["service", "username", "url", "tags", "favourite", "created", "updated", "android_app", "kind"] as const;
 const ENTRY_FIELDS = ["service", "username", "password", "url", "notes", "totp_secret", "tags", "favourite", "rotate_days"] as const;
 
 /** Vault-wide default password rotation period in days, matching
@@ -125,6 +125,36 @@ export interface PasskeyRecord {
   backed_up: boolean;
 }
 
+/** An Android-app autofill binding: the entry is linked to one
+ * Android app (package name + SHA-256 of its signing certificate,
+ * lowercase hex). Bindings are created and managed by the Android
+ * autofill flow; every other client carries them verbatim so the
+ * link survives round trips (the Python engine's rule). */
+export interface AndroidAppBinding {
+  package: string;
+  cert_sha256: string;
+  label?: string;
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
+/** Validate an Android-app binding, or return null — the Python
+ * engine's clean_android_app, rule for rule. Anything malformed
+ * becomes null: a bad binding must never silently match an app at
+ * fill time. Valid bindings are normalized (trimmed, cert
+ * lowercased, colons stripped) exactly as the desktop writes them. */
+export function cleanAndroidApp(value: unknown): AndroidAppBinding | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.package !== "string" || !v.package.trim()) return null;
+  if (typeof v.cert_sha256 !== "string") return null;
+  const cert = v.cert_sha256.trim().toLowerCase().replace(/:/g, "");
+  if (!HEX64.test(cert)) return null;
+  const out: AndroidAppBinding = { package: v.package.trim(), cert_sha256: cert };
+  if (typeof v.label === "string" && v.label.trim()) out.label = v.label.trim();
+  return out;
+}
+
 export interface VaultEntry {
   id: string;
   service: string;
@@ -135,6 +165,9 @@ export interface VaultEntry {
   totp_secret: string;
   tags: string[];
   favourite: boolean;
+  /** Android autofill binding, carried verbatim (see
+   * AndroidAppBinding); null when the entry is not linked. */
+  android_app: AndroidAppBinding | null;
   kind: "login" | "passkey";
   passkey: PasskeyRecord | null;
   created: number;
@@ -429,6 +462,7 @@ export class VaultSession {
         url: meta.url ?? "",
         tags: Array.isArray(meta.tags) ? meta.tags : [],
         favourite: Boolean(meta.favourite),
+        android_app: cleanAndroidApp(meta.android_app),
         created: meta.created ?? 0,
         updated: meta.updated ?? 0,
         password: secret.password ?? "",
@@ -722,7 +756,7 @@ export class VaultSession {
   async addEntry(
     input: Omit<
       VaultEntry,
-      "id" | "created" | "updated" | "password_set_at" | "rotate_days" | "kind" | "passkey"
+      "id" | "created" | "updated" | "password_set_at" | "rotate_days" | "kind" | "passkey" | "android_app"
     > & {
       rotate_days?: number | null;
     },
@@ -753,6 +787,7 @@ export class VaultSession {
       tags: [...input.tags],
       kind: "login",
       passkey: null,
+      android_app: null,
       id: uuidHex(),
       created: ts,
       updated: ts,
@@ -800,6 +835,7 @@ export class VaultSession {
       favourite: false,
       password_set_at: null,
       rotate_days: null,
+      android_app: null,
       kind: "passkey",
       passkey: rec,
       created: rec.created_at,
@@ -1032,6 +1068,7 @@ export class VaultSession {
         tags: [...rec.tags],
         kind: "login",
         passkey: null,
+        android_app: null,
         id: uuidHex(),
         created: ts,
         updated: ts,
