@@ -1,7 +1,7 @@
 {
  "password": "Correct-Horse-2026!",
  "phrase": "legal winner thank year wave sausage worth useful legal winner thank yellow",
- "vault_id": "6adeb46fb15940c48f750f7e21d2cc7b",
+ "vault_id": "4433764a9514416da6c63918d89c80d8",
  "entries": [
   {
    "service": "github",
@@ -13,7 +13,8 @@
    "tags": [
     "dev"
    ],
-   "favourite": true
+   "favourite": true,
+   "android_app": null
   },
   {
    "service": "bank",
@@ -25,7 +26,8 @@
    "tags": [
     "finance"
    ],
-   "favourite": false
+   "favourite": false,
+   "android_app": null
   },
   {
    "service": "email",
@@ -35,7 +37,23 @@
    "notes": "no totp here",
    "totp_secret": "",
    "tags": [],
-   "favourite": false
+   "favourite": false,
+   "android_app": null
+  },
+  {
+   "service": "shopapp",
+   "username": "shopper",
+   "password": "fake-shop-pass-000",
+   "url": "https://shop.example",
+   "notes": "bound to a test android app",
+   "totp_secret": "",
+   "tags": [],
+   "favourite": false,
+   "android_app": {
+    "package": "com.example.shop",
+    "cert_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "label": "Shop App"
+   }
   }
  ],
  "totp": {
@@ -44,15 +62,15 @@
   "at_1111111109": "081804"
  },
  "backup": {
-  "source_fingerprint": "a3a1:3b61:e673:0b5e:0bec:1c99:5522:adca",
+  "source_fingerprint": "2d56:2c4e:2590:d4dc:0c6d:f5e5:5796:8eba",
   "package_file": "fixture.mykeybak",
-  "backup_code": "gaze evoke cream wealth modify custom trap enter",
+  "backup_code": "electric vapor brown strong tent close lemon finish",
   "legacy_file": "fixture-v1.mykeybak"
  },
  "pairing": {
-  "target_id": "427b4a1c30064aa19dab88a4a9c7dfe9",
-  "fingerprint": "c356:3328:8d6c:bd20:1df2:6926:9f2b:cc8b",
-  "priv_b64": "6GD8w3RYJkEOGx7u9dcGzLanVpiYvP8fY7NlJkuFbVI=",
+  "target_id": "be10b37dbbc44744b610302ff9834529",
+  "fingerprint": "32e6:eda3:c71f:7e12:f016:aaee:7b8b:9534",
+  "priv_b64": "4JfFXXzHMd2/XUAZC5vbskYCiPK4E7+8JVKs7J5rdVg=",
   "revoked_package_file": "fixture-nopair.mykeybak"
  },
  "rotation": {
@@ -71,12 +89,16 @@
    "email": {
     "rotate_days": 0,
     "state": "off"
+   },
+   "shopapp": {
+    "rotate_days": 0,
+    "state": "off"
    }
   }
  },
  "agent": {
   "id": "fixture-agent",
-  "token": "mkag1.fixture-agent.Sj_aPH5jKvjloKhr7wk2J_XO2gmDu1rDSGy8EVM5erY",
+  "token": "mkag1.fixture-agent.yhhECkVPFPlshNSlWh9Yn1_jN2Hy3xZp4Dpo7wO0sOU",
   "scopes": [
    "list",
    "get:github"

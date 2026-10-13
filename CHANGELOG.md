@@ -6,6 +6,41 @@ is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
+Android autofill wave.
+
+- **Autofill service (Android).** MyKey can now fill passwords in
+  other apps and browsers. A native AutofillService answers with
+  a single no-value dataset; tapping it opens MyKey, and the
+  chosen entry's values cross back only after unlock + an
+  explicit tap — never automatically, never with auto-submit.
+  Inline (keyboard) presentation plus the dropdown dataset.
+- **Matching with a hard identity check.** Browsers match by web
+  domain (subdomains of a saved site included; lookalikes
+  refused). Apps match by a binding stored on the entry: package
+  name + the SHA-256 of the app's signing certificate. A
+  re-signed or cloned app never matches silently — it is flagged
+  and needs a fresh one-time confirm. First use asks to link;
+  unlinking lives in the entry details.
+- **Save to MyKey.** Android's save prompt routes new logins to
+  an in-app confirm screen; nothing is stored before the tap.
+  New entries pass the same free entry cap as every other add
+  path — the licensing wave's limit, enforced in the vault
+  itself (50 entries free, unlimited with a licence).
+- **Hardening.** Locked vault ⇒ the dataset shows only "Unlock
+  MyKey" (no entry names, no usernames). FLAG_SECURE on the app
+  and the autofill auth screen (no screenshots/recents). The
+  autofill module has zero logging — enforced by a CI grep — and
+  release rules strip Log calls if minification is ever enabled.
+  Auto-lock expiry revokes fill ability.
+- **Entry field `android_app`** (encrypted metadata) round-trips
+  through both clients; the desktop engine carries it and shows
+  it read-only. Interop fixtures gained a bound entry proving
+  both directions, including through a Python save.
+- Settings gains an "Autofill in other apps" section with an
+  honest on/off status and a deep link to Android's picker.
+- Device verification is the owner's step (CI has no emulator):
+  docs/DEVICE_TEST_AUTOFILL.md.
+
 ### Fixed — Android autofill bindings survive a save in this client
 - Entries can carry an `android_app` binding (package name +
   signing-certificate hash) written by the desktop engine / the
@@ -69,38 +104,6 @@ lockstep with the desktop engine.
   with the Muse referral code, a licence summary, and a
   changelog pointer. A marked slot waits for the licence / tip
   block if the free-tier ruling lands.
-
-- **Browser extension + autofill** (new sibling package,
-  `extension/`). For Chromium browsers (Chrome/Edge/Brave/…)
-  and Firefox; Safari is out of scope for v1. The extension
-  holds no vault copy: it talks to the desktop app over native
-  messaging, paired by the house key-value pattern (extension
-  id → X25519 public key + scopes + expiry + enabled, approved
-  by a human on the desktop with a fingerprint ceremony).
-  Session traffic is encrypted in transit (X25519 + HKDF,
-  AES-256-GCM per message, replay counters) — a frame capture
-  shows only ciphertext.
-- **Autofill behaviour.** Exact origin matching (scheme + host
-  + port), per-entry "also fill on subdomains" toggle (default
-  off, stored on the desktop), lookalikes never match. Fill is
-  click-only — never on page load, never auto-submit. TOTP fill
-  is a separate explicit action. Save-on-login capture prompts
-  in-page and saves only on a click; payment forms are
-  recognised and never harvested. Clipboard copies follow the
-  house rule (clear after 60–300s, default 60, only if the
-  clipboard still holds the copy; immediate clear on lock).
-- **Leak test gate.** A named suite (`extension/tests/`,
-  including `leak.test.ts` and a real-host integration suite)
-  proves: no plaintext in recorded channel frames, wrong
-  origins get nothing, iframes get nothing, no secrets in
-  console/storage/DOM/message traffic/errors, lock wipes fill
-  ability and caches, revoked/expired pairings are refused,
-  non-login forms are never captured, and the extension makes
-  zero network requests with a minimal permission manifest.
-  Store-ready zips build as CI artifacts
-  (`.github/workflows/extension.yml`).
-- Known v1 limits: no in-field icon, change-password capture
-  not offered yet, desktop pairing screens are CLI-only.
 
 ## [1.2.0] — 2026-10-13
 

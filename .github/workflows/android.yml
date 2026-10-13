@@ -47,6 +47,21 @@ jobs:
           npm run build
           npx cap sync android
 
+      - name: No logging in the autofill module (hardening gate)
+        run: |
+          # The autofill + plugin sources must never write to
+          # logcat: targets, fields, and outcomes stay silent.
+          if grep -rn "android.util.Log\|Log\.\(d\|v\|i\|w\|e\)(" \
+              android/app/src/main/java/com/usemykey/mykey/autofill \
+              android/app/src/main/java/com/usemykey/mykey/MyKeyAutofillPlugin.kt; then
+            echo "logging call found in the autofill module" >&2
+            exit 1
+          fi
+
+      - name: Native unit tests (autofill heuristics, cert digest, router)
+        working-directory: android
+        run: sh ./gradlew testDebugUnitTest --stacktrace
+
       - name: Build debug APK and unsigned release AAB
         working-directory: android
         run: sh ./gradlew assembleDebug bundleRelease --stacktrace

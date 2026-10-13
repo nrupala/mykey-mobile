@@ -47,11 +47,13 @@ const expected = JSON.parse(readFileSync(join(FIX, "expected.json"), "utf8"));
 function entryView(e: {
   service: string; username: string; password: string; url: string;
   notes: string; totp_secret: string; tags: string[]; favourite: boolean;
+  android_app?: unknown;
 }) {
   return {
     service: e.service, username: e.username, password: e.password,
     url: e.url, notes: e.notes, totp_secret: e.totp_secret,
     tags: e.tags, favourite: e.favourite,
+    android_app: e.android_app ?? null,
   };
 }
 
@@ -79,7 +81,7 @@ describe("Python-fixture vault opens in the TS client", () => {
 
   it("unlocks with the recovery phrase", async () => {
     const s = await VaultSession.openWithPhrase(vaultBytes, expected.phrase);
-    expect(s.listEntries()).toHaveLength(3);
+    expect(s.listEntries()).toHaveLength(4);
   });
 
   it("rejects a valid-but-wrong recovery phrase", async () => {
@@ -110,7 +112,15 @@ describe("Python-fixture vault opens in the TS client", () => {
     expect(Object.keys(file.bundles)).toContain(expected.agent.id);
     expect(file.slots.map((x: any) => x.id)).toContain("master");
     const again = await VaultSession.openWithPassword(saved, expected.password);
-    expect(again.listEntries()).toHaveLength(3);
+    expect(again.listEntries()).toHaveLength(4);
+    // The Android-app binding survives a TS serialize → reopen
+    // round trip (package + signing-cert hash + label).
+    const shop = again.listEntries().find((e) => e.service === "shopapp");
+    expect(shop?.android_app).toEqual({
+      package: "com.example.shop",
+      cert_sha256: "0123456789abcdef".repeat(4),
+      label: "Shop App",
+    });
   });
 });
 
@@ -202,7 +212,7 @@ describe("MKBAK recovery import (Python-generated package)", () => {
     );
     expect(result.legacy).toBe(true);
     const s = await VaultSession.openWithPassword(result.vaultBytes, expected.password);
-    expect(s.listEntries()).toHaveLength(3);
+    expect(s.listEntries()).toHaveLength(4);
   });
 
   it("imports via the pairing key on the pre-revocation package", async () => {
@@ -212,7 +222,7 @@ describe("MKBAK recovery import (Python-generated package)", () => {
     );
     expect(result.via).toBe(`pairing:${expected.pairing.target_id}`);
     const s = await VaultSession.openWithPassword(result.vaultBytes, expected.password);
-    expect(s.listEntries()).toHaveLength(3);
+    expect(s.listEntries()).toHaveLength(4);
   });
 
   it("the post-revocation package has NO pairing slot", async () => {
@@ -324,7 +334,7 @@ describe("TS-exported MKBAK v2 package (for the Python cross-check)", () => {
     );
     expect(viaPairing.via).toBe(`pairing:${target.targetId}`);
     const opened = await VaultSession.openWithPassword(viaRecovery.vaultBytes, expected.password);
-    expect(opened.listEntries()).toHaveLength(3);
+    expect(opened.listEntries()).toHaveLength(4);
     // The pairing registry survived the round trip in the core.
     expect(Object.keys(opened.pairingsRegistry())).toContain(target.targetId);
   });
@@ -395,7 +405,7 @@ describe("TS-written files for the Python cross-check", () => {
     await s.addWrappedSlot("pwa-device", wrapKey);
     const saved = await s.serialize();
     const via = await VaultSession.openWithWrapKey(saved, "pwa-device", wrapKey);
-    expect(via.listEntries()).toHaveLength(3);
+    expect(via.listEntries()).toHaveLength(4);
     await expect(
       VaultSession.openWithWrapKey(saved, "pwa-device", randomBytes(32)),
     ).rejects.toBeInstanceOf(WrongPasswordError);

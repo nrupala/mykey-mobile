@@ -124,6 +124,24 @@ import {
   getAssertion,
   updateHighWater,
 } from "../vault/passkey.js";
+import {
+  chooserLabel,
+  classifyAppMatch,
+  groupEntriesForTarget,
+  targetName,
+} from "../vault/autofill.js";
+import {
+  acknowledgeAutofillSave,
+  autofillServiceState,
+  cancelAutofillRequest,
+  completeAutofillFill,
+  onAutofillRequest,
+  openAutofillSettings,
+  pendingAutofillRequest,
+  pendingAutofillSaveValues,
+  reportAutofillSession,
+  type PendingAutofill,
+} from "../platform/autofill.js";
 
 // ------------------------------------------------------------------
 // Tiny DOM helpers
@@ -218,6 +236,8 @@ interface AppState {
   totpTimer: number | null;
 }
 
+let pendingAutofill: PendingAutofill | null = null;
+
 const state: AppState = {
   settings: null as unknown as AppSettings,
   storedBytes: null,
@@ -275,6 +295,50 @@ function syncGate(scope: PairingScope): string | null {
   return pairingBlockReason(rec ?? null, scope, state.syncTargetId);
 }
 
+// ---------------------------------------------------------- autofill
+//
+// The Android AutofillService hands requests to this app through the
+// MyKeyAutofill plugin (see src/platform/autofill.ts). A request is
+// only ever answered from an unlocked session, after the user taps
+// an entry — nothing is filled silently, and the vault lock stays
+// the single gate.
+
+async function refreshPendingAutofill(): Promise<void> {
+  try {
+    pendingAutofill = await pendingAutofillRequest();
+  } catch {
+    pendingAutofill = null;
+  }
+}
+
+async function cancelPendingAutofill(): Promise<void> {
+  const req = pendingAutofill;
+  pendingAutofill = null;
+  if (req) {
+    try {
+      await cancelAutofillRequest(req.token);
+    } catch { /* best effort */ }
+  }
+}
+
+/** Route after entering the vault: a pending autofill request takes
+ * over the home screen; everything else lands as usual. */
+function afterEnterVault(): void {
+  void reportAutofillSession(
+    true,
+    state.settings.autoLockMinutes > 0
+      ? Date.now() + state.settings.autoLockMinutes * 60_000
+      : 0,
+  );
+  if (pendingAutofill?.kind === "fill") {
+    renderAutofillChooser();
+  } else if (pendingAutofill?.kind === "save") {
+    renderAutofillSave();
+  } else {
+    renderUnlocked();
+  }
+}
+
 function armAutoLock(): void {
   if (state.autoLockTimer !== null) window.clearTimeout(state.autoLockTimer);
   state.autoLockTimer = null;
@@ -294,6 +358,16 @@ function lock(notice?: string): void {
   // for the clipboard timer (platform/clipboard.ts holds the rule).
   void clipboardGuard.clearNow();
   void clearPasskeyWarmIndex();
+  // A locked vault answers no autofill request: cancel a pending
+  // fill natively at once and report the session as locked. A
+  // pending save keeps its values on the native side only; the
+  // confirm screen is unreachable while locked.
+  if (pendingAutofill?.kind === "fill") {
+    const req = pendingAutofill;
+    pendingAutofill = null;
+    void cancelAutofillRequest(req.token).catch(() => undefined);
+  }
+  void reportAutofillSession(false, 0);
   void renderLocked(notice);
 }
 
@@ -343,6 +417,15 @@ async function renderLocked(notice?: string): Promise<void> {
       button("Restore from a backup package", () => renderRestore()),
     );
     root.append(actions);
+  }
+
+  if (pendingAutofill) {
+    root.append(
+      el("p", { class: "alert alert-info", role: "status" },
+        pendingAutofill.kind === "fill"
+          ? `Unlock to fill your sign-in for ${targetName(pendingAutofill)}.`
+          : `Unlock to review the new sign-in for ${targetName(pendingAutofill)}.`),
+    );
   }
 
   // Help must be reachable while locked out — the FAQ is where a
@@ -579,7 +662,7 @@ function renderPhraseSetup(session: VaultSession, firstTime: boolean): void {
   const grid = el("ol", { class: "phrase-grid" });
   const done = button(firstTime ? "I've saved my phrase — open my vault" : "Done", async () => {
     await persist();
-    renderUnlocked();
+    afterEnterVault();
   }, "primary");
   done.disabled = true;
   const confirmBox = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -1262,7 +1345,7 @@ async function enterVault(session: VaultSession): Promise<void> {
     renderPasskeyRequest(pending);
     return;
   }
-  renderUnlocked();
+  afterEnterVault();
 }
 
 // ------------------------------------------------------------------
@@ -1567,6 +1650,52 @@ function entryDetail(entry: VaultEntry): HTMLElement {
   });
   pwRow.append(el("span", { class: "kv-label" }, "Password"), pwValue, showBtn,
     button("Copy", () => copySecret(entry.password, "Password", status)));
+  if (pendingAutofill?.kind === "fill" && state.session) {
+    const session = state.session;
+    const req = pendingAutofill;
+    const fillBtn = button("Fill this into the other app", async () => {
+      const done = await completeAutofillFill(req.token, entry.username, entry.password);
+      if (done) {
+        pendingAutofill = null;
+        status.textContent = "Sent back to the other app. If it did not fill, tap the field there once more.";
+      } else {
+        status.textContent = "That autofill request is no longer waiting (it may have timed out).";
+      }
+    }, "primary");
+    box.append(fillBtn);
+    if (req.packageName && !req.webDomain && classifyAppMatch(entry.android_app, req.packageName, req.certSha256) === "unbound") {
+      const linkBtn = button(`Link this entry to ${req.appLabel ?? req.packageName}`, async () => {
+        if (!window.confirm(
+          `Link "${entry.service}" to the app "${req.appLabel ?? req.packageName}" (${req.packageName})?\n\n` +
+          "MyKey checks the app's signing certificate, so a different app — or a re-signed copy — will not be filled silently. You can unlink at any time from this entry.",
+        )) return;
+        await session.updateEntry(entry.id, {
+          android_app: {
+            package: req.packageName!,
+            cert_sha256: req.certSha256 ?? "",
+            ...(req.appLabel ? { label: req.appLabel } : {}),
+          },
+        });
+        await persist();
+        status.textContent = "Linked. This entry will be offered first for that app.";
+        renderUnlocked(entry.id);
+      });
+      box.append(linkBtn);
+    }
+  }
+  if (entry.android_app) {
+    box.append(
+      el("p", { class: "hint" },
+        `Linked Android app: ${entry.android_app.label ?? entry.android_app.package} (${entry.android_app.package}). ` +
+        "Shown for information — the link lives in the encrypted entry and travels with the vault."),
+      button("Unlink Android app", async () => {
+        if (!state.session) return;
+        await state.session.updateEntry(entry.id, { android_app: null });
+        await persist();
+        renderUnlocked(entry.id);
+      }),
+    );
+  }
   box.append(pwRow);
 
   if (entry.totp_secret) {
@@ -1834,6 +1963,206 @@ function renderLicenceKey(): void {
   armAutoLock();
 }
 
+function autofillSettingsSection(): HTMLElement {
+  const box = el("div", { class: "action-stack" });
+  box.append(el("h3", {}, "Autofill in other apps"));
+  const status = el("p", { class: "hint", role: "status" });
+  box.append(status);
+  void (async () => {
+    const st = await autofillServiceState();
+    if (!st.supported) {
+      status.textContent =
+        "Autofill works in the Android app. In the web app there is nothing to turn on — use copy and paste.";
+      return;
+    }
+    status.textContent = st.enabled
+      ? "MyKey Autofill is ON. Other apps and browsers can ask MyKey to fill your sign-ins — you always unlock and tap the entry first; nothing is filled on its own."
+      : "MyKey Autofill is off. Turn it on in Android Settings → Passwords & accounts → Autofill service → MyKey.";
+    if (!st.enabled) {
+      box.append(button("Open Android autofill settings", () => void openAutofillSettings()));
+    }
+  })();
+  return box;
+}
+
+function renderAutofillChooser(): void {
+  const session = state.session;
+  const req = pendingAutofill;
+  if (!session || !req || req.kind !== "fill") {
+    renderUnlocked();
+    return;
+  }
+  const root = el("section", { class: "screen" });
+  const target = targetName(req);
+  root.append(el("h2", {}, `Fill a sign-in for ${target}`));
+  root.append(
+    el("p", { class: "lede" },
+      "Tap the entry to send its username and password back to the app or site that asked. Nothing is filled until you tap."),
+  );
+  const status = el("p", { class: "hint", role: "status" });
+  const groups = groupEntriesForTarget(session.listEntries(), req);
+  const fillWith = async (entry: VaultEntry, linkFirst: boolean) => {
+    try {
+      if (linkFirst && req.packageName) {
+        if (!window.confirm(
+          `Link "${entry.service}" to the app "${req.appLabel ?? req.packageName}" (${req.packageName})?\n\n` +
+          "MyKey checks the app's signing certificate, so a different app — or a re-signed copy — will not be filled silently. You can unlink at any time from the entry.",
+        )) return;
+        await session.updateEntry(entry.id, {
+          android_app: {
+            package: req.packageName,
+            cert_sha256: req.certSha256 ?? "",
+            ...(req.appLabel ? { label: req.appLabel } : {}),
+          },
+        });
+        await persist();
+      }
+      const done = await completeAutofillFill(req.token, entry.username, entry.password);
+      pendingAutofill = null;
+      if (done) {
+        status.textContent = "Sent back. If the fields did not fill, tap the password field in the other app once more.";
+      } else {
+        status.textContent = "That request is no longer waiting (it may have timed out). Go back to the other app and tap its password field again.";
+      }
+    } catch (err) {
+      status.textContent = errorText(err);
+    }
+  };
+  const entryButton = (entry: VaultEntry, linkFirst: boolean) => {
+    const label = chooserLabel(entry);
+    return button(`${label.title} — ${label.subtitle}`, () => void fillWith(entry, linkFirst), "primary");
+  };
+
+  if (groups.matched.length > 0) {
+    root.append(el("h3", {}, req.webDomain ? "Matching this site" : "Linked to this app"));
+    for (const e of groups.matched) root.append(entryButton(e, false));
+  }
+  if (groups.certMismatch.length > 0) {
+    root.append(el("h3", {}, "Linked app — signature changed"));
+    root.append(
+      el("p", { class: "alert alert-warn", role: "alert" },
+        "This app's signing certificate does not match the one saved with the entry below. It may have been re-signed or replaced. " +
+        "It is NOT offered for filling. If you trust this app, open the entry from your vault list and link it again."),
+    );
+    for (const e of groups.certMismatch) {
+      root.append(el("p", { class: "hint" }, `${e.service} — ${e.username}`));
+    }
+  }
+  const showAll = button("Show all entries", () => {
+    const list = el("div", { class: "action-stack" });
+    for (const e of groups.others) {
+      const row = el("div", { class: "action-stack" });
+      row.append(entryButton(e, false));
+      if (req.packageName && !req.webDomain && classifyAppMatch(e.android_app, req.packageName, req.certSha256) === "unbound") {
+        row.append(button(`Link ${e.service} to this app and fill`, () => void fillWith(e, true)));
+      }
+      row.append(button("Copy password instead", () => void copySecret(e.password, "Password", status)));
+      list.append(row);
+    }
+    showAll.replaceWith(list);
+  });
+  if (groups.others.length > 0) root.append(showAll);
+  if (groups.matched.length === 0 && groups.others.length === 0 && groups.certMismatch.length === 0) {
+    root.append(el("p", { class: "hint" }, "Your vault has no entries yet. Add one from the vault home screen, then come back."));
+  }
+  root.append(
+    status,
+    button("Not now", () => {
+      void cancelPendingAutofill();
+      renderUnlocked();
+    }),
+    button("Lock", () => lock()),
+  );
+  render(root);
+}
+
+function renderAutofillSave(): void {
+  const session = state.session;
+  const req = pendingAutofill;
+  if (!session || !req || req.kind !== "save") {
+    renderUnlocked();
+    return;
+  }
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Save this sign-in to MyKey?"));
+  root.append(
+    el("p", { class: "lede" },
+      `You just signed in to ${targetName(req)}. Review it below — nothing is saved until you tap Save.`),
+  );
+  const status = el("p", { class: "hint", role: "status" });
+  status.textContent = "Getting the sign-in details…";
+  const serviceInput = input({ type: "text", value: req.webDomain ?? req.appLabel ?? "", autocomplete: "off" });
+  const userInput = input({ type: "text", autocomplete: "off" });
+  const passInput = input({ type: "password", autocomplete: "off" });
+  const urlInput = input({ type: "url", value: req.webDomain ?? "", autocomplete: "off" });
+  const form = el("form", { class: "form" });
+  form.append(
+    field("Service", serviceInput),
+    field("Username", userInput),
+    field("Password", passInput),
+    field("Website", urlInput),
+  );
+  void (async () => {
+    const values = await pendingAutofillSaveValues(req.token);
+    if (!values) {
+      status.textContent = "Those sign-in details are no longer available (the request may have timed out). Nothing was saved.";
+      return;
+    }
+    userInput.value = values.username;
+    passInput.value = values.password;
+    status.textContent = "";
+  })();
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const service = serviceInput.value.trim();
+    if (!service) {
+      status.textContent = "Give the entry a service name first.";
+      return;
+    }
+    if (session.listEntries().length >= session.entryLimit()) {
+      status.textContent =
+        "Your vault has reached the free limit, so this sign-in was not saved. Unlock MyKey with a licence to add more.";
+      return;
+    }
+    try {
+      const newEntry = await session.addEntry({
+        service,
+        username: userInput.value.trim(),
+        password: passInput.value,
+        url: urlInput.value.trim(),
+        notes: "",
+        totp_secret: "",
+        tags: [],
+        favourite: false,
+        android_app:
+          !req.webDomain && req.packageName && req.certSha256
+            ? {
+                package: req.packageName,
+                cert_sha256: req.certSha256,
+                ...(req.appLabel ? { label: req.appLabel } : {}),
+              }
+            : null,
+      });
+      await persist();
+      await acknowledgeAutofillSave(req.token);
+      pendingAutofill = null;
+      passInput.value = "";
+      renderUnlocked(newEntry.id);
+    } catch (err) {
+      status.textContent = errorText(err);
+    }
+  });
+  const discard = button("Discard", async () => {
+    passInput.value = "";
+    await acknowledgeAutofillSave(req.token);
+    pendingAutofill = null;
+    renderUnlocked();
+  });
+  form.append(button("Save to MyKey", () => form.requestSubmit(), "primary"), discard);
+  root.append(form, status);
+  render(root);
+}
+
 function settingsPanel(): HTMLElement {
   const session = state.session!;
   const panel = el("section", { class: "card settings", "aria-label": "Settings" });
@@ -2067,6 +2396,7 @@ function settingsPanel(): HTMLElement {
   }
 
   panel.append(actions, status);
+  panel.append(autofillSettingsSection());
   panel.append(
     el("p", { class: "hint" }, `${BRAND.productName} ${"2.2.0"} · ${BRAND.vendor}`),
     el("p", { class: "hint" }, BRAND.attribution),
@@ -2447,5 +2777,12 @@ export async function boot(): Promise<void> {
       if (state.session) armAutoLock();
     }, { passive: true });
   }
+  await refreshPendingAutofill();
+  void reportAutofillSession(false, 0);
+  void onAutofillRequest(async () => {
+    await refreshPendingAutofill();
+    if (state.session) afterEnterVault();
+    else void renderLocked();
+  });
   await renderLocked();
 }

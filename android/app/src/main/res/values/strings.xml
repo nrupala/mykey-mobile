@@ -4,4 +4,6 @@
     <string name="title_activity_main">MyKey</string>
     <string name="package_name">com.usemykey.mykey</string>
     <string name="custom_url_scheme">com.usemykey.mykey</string>
+    <string name="autofill_service_label">MyKey</string>
+    <string name="autofill_service_description">Fill your MyKey passwords in other apps and browsers — always with your tap, only after you unlock.</string>
 </resources>

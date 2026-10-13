@@ -1,8 +1,10 @@
 # Feature matrix — MyKey web client (PWA) + Android app
 
-Exact status of every feature, as of the 1.3.0 licensing wave
-and the passkey wave (2026-10-13), following the blob and
+Exact status of every feature, as of the 1.3.0 licensing
+and passkey waves and the Android autofill wave
+(2026-10-13), following the blob and
 password-rotation waves. "Deferred" means deliberately not built yet, not
+
 broken. "Platform-blocked" means the platform cannot genuinely do
 it, the app says so in plain words, and a working fallback is
 offered instead.
@@ -31,6 +33,7 @@ offered instead.
 | Password generator | Implemented | ≥ 16 characters (default 20), unbiased random selection, desktop's alphabet. |
 | TOTP sign-in codes | Implemented | Live code + countdown, RFC 6238, accepts raw secrets and otpauth:// values. |
 | Favourites, tags | Implemented | Favourites pin to the top; tags are plain text, comma-separated. |
+| Android app binding on an entry | Implemented | An entry can be linked to one Android app (package name + SHA-256 of its signing certificate), stored in the encrypted metadata like every other field and carried by both clients; the desktop shows it read-only. Set from the Android autofill chooser after an explicit confirm; unlink in the entry's details. |
 | Password age + rotation | Implemented | The day each password was set is stored inside the encrypted secret blob (never in plaintext, never in agent-visible listings) and shown in plain words ("Password set 13 Oct 2026 · change by 11 Apr 2027"). Changing the password restarts the clock; other edits never touch it; "Mark as changed today" covers website-side changes. Due after 180 days by default; Settings changes the vault default (or Never); the edit form sets a per-entry period or Never. Calm surfacing only: list badge, a count at unlock, and a Password rotation section. No notifications in this version (future work; no new permissions). Pre-feature vaults open with the creation date as the set date, else "date not recorded". Desktop-identical semantics, proven both directions through the fixture gate. |
 | Notifications for due passwords | Deferred (future work) | Deliberately not in this wave: reminders are in-app only, and the app holds no notification permission. |
 | Import from browsers (CSV) | Implemented | Chromium family (Chrome/Edge/Brave/Opera/Vivaldi/Arc/Google Password Manager) and Firefox exports are recognised by header signature; anything else gets a by-hand column mapping. Mirrors the desktop importer: (service, username) keys, same-password = duplicate (skipped), different password = conflict with a plain-language choice (keep mine / use the file's / keep both). The file is parsed locally and never uploaded; imported entries land encrypted in the vault. Other managers' formats (Bitwarden, 1Password, …) arrive through the generic mapping in this client; their dedicated parsers remain desktop-only for now. |
@@ -84,6 +87,7 @@ offered instead.
 | Installable PWA, full offline after first visit | Implemented | Service-worker precache of the whole client; e2e-proven offline. |
 | Android app (Capacitor, same build) | Implemented | Debug APK + unsigned release AAB from CI (see README — signing section). No INTERNET permission; Android cloud backup of app data disabled. |
 | Fingerprint / face unlock (Android) | Implemented | Opt-in wrapped slot: a random wrap key lives in Android Keystore-backed, biometric-gated storage and unwraps the vault through its normal cryptographic path. Not a plaintext backdoor; turning it off deletes slot + key. Verify on a real device: CI cannot exercise biometrics. |
+| Autofill in other apps & browsers (Android) | Implemented — device test pending | A native AutofillService answers fill requests with a single no-value dataset; tapping it opens MyKey, and only after unlock + an explicit entry tap does the chosen username/password cross back. Browsers match by web domain; apps match by package name bound to the entry PLUS the app's signing-certificate SHA-256 — a re-signed clone never matches silently (it is flagged and needs a fresh confirm, once). Inline (keyboard) presentation + dropdown; Save-to-MyKey on Android's save prompt routes to an in-app confirm screen. Locked vault ⇒ the dataset says only "Unlock MyKey". FLAG_SECURE on the app + auth screens; the autofill module contains no logging (CI-gated). CI has no emulator, so on-device verification follows docs/DEVICE_TEST_AUTOFILL.md — that step is the owner's. |
 | Biometric unlock in the pure web PWA | Not offered (security decision) | A wrap key in web storage would be script-readable — a quiet backdoor. Password/phrase only on the web. |
 | iOS app | Deferred | The PWA works in Safari (with the download/upload flows); a Capacitor iOS build is a later wave. |
 | Auto-lock (quiet timer + when hidden) | Implemented | Defaults: 5 minutes, and lock when hidden — both changeable. |
@@ -99,20 +103,3 @@ offered instead.
 | Built-in help ("How MyKey works") | Implemented | Ships inside the app bundle; fully offline. Canonical text lives in the desktop repo (HELP.md); this copy is byte-identical and the PWA CI fails on drift. |
 | Common questions (FAQ) | Implemented | Same canonical-text rule (FAQ.md). Reachable from the locked/welcome screen — before sign-in — and from Settings. |
 | About screen | Implemented | Version (from package.json), seller 2351485 ALBERTA INC., support info@aimlds.org, linked attribution with referral code 101EEK, licence summary, changelog pointer. Licence/tip block slot reserved (free-tier ruling pending — no purchase content yet). |
-
-## Browser extension (sibling package, `extension/`)
-
-| Feature | Status | Notes |
-|---|---|---|
-| Chromium (Chrome/Edge/Brave) + Firefox | Implemented | One TypeScript source, two manifests. Safari is out of scope for v1 (stated plainly in the extension README). Store-ready zips are CI artifacts. |
-| Vault location | Desktop-only, by design | The extension holds no vault copy. It talks to the desktop app over native messaging; the vault never leaves the desktop process unencrypted. |
-| Pairing | Implemented | House key-value pattern: extension id → X25519 public key + scopes (fill, save) + expiry + enabled. Human approves on the desktop after comparing fingerprints; revoked ids can never re-enroll; the extension pins the host key the same way. |
-| Encryption in transit | Implemented | X25519 session agreement from the pairing keys, HKDF-SHA256 session keys per connection, AES-256-GCM per message, strict replay counters. Canonical-JSON byte compatibility with the Python host is pinned by shared known-answer vectors (CI regenerates + diffs). |
-| Origin matching | Implemented, host-authoritative | Scheme + host + port exact. Subdomains only with the per-entry "also fill on subdomains" toggle (default off; the choice is stored in the desktop host store, not in the vault, so the Vault v3 format needed no new field). Lookalike hosts never match. |
-| Fill behaviour | Implemented | Click-only (popup button or Ctrl+Shift+Y). Never on page load, never auto-submit, top frame only, iframes get nothing. TOTP fill is a separate explicit action. In-field icon: deferred to a later version (stated in the README). |
-| Save-on-login capture | Implemented | Detects a successful login submit, prompts in-page (or in the popup after a cross-tab redirect), saves only on a click; updates report what changed. Payment forms are classified and never harvested; change-password capture is deferred in v1. |
-| Generator | Implemented | Same alphabet and 16-character minimum as the desktop. |
-| Clipboard rule | Implemented | Copy clears after the desktop-set time (60–300s, default 60), only when the clipboard still holds that copy (hash-checked, the value itself is never kept); cleared immediately on lock. Chromium clears via an offscreen document; Firefox in the background page. |
-| Lock behaviour | Implemented | Desktop lock or auto-lock ends fills at once; the extension wipes matched-entry caches and any pending save. |
-| Leak test suite | Implemented (merge gate) | Eight named gates (frames, origins, iframes, side channels, lock, revocation/expiry, form capture, zero-network + manifest audit) in `extension/tests/`, half of them also proven against the real Python host in-process and over real pipes. |
-| In-page field icon | Deferred | v1 uses the popup/shortcut only; stated in the README. |

@@ -19,3 +19,15 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Autofill hardening: if minification is ever enabled, strip any
+# android.util.Log call as a side-effect-free no-op. (The autofill
+# module itself contains no logging calls — CI greps for them —
+# this is belt-and-braces for the whole app.)
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+}
