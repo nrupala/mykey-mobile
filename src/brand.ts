@@ -21,7 +21,7 @@ export const BRAND = {
   productName: "MyKey",
   tagline: "Zero-Trust Password Manager",
   domain: "usemykey.com",
-  supportEmail: "info@pipavia.com",
+  supportEmail: "info@aimlds.org",
   appId: "com.usemykey.mykey",
   vendor: "2351485 ALBERTA INC.",
   attribution: "Owned by Nrupal Akolkar · Built with Muse by Meta",
