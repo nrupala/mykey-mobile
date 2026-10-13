@@ -2,7 +2,7 @@
 
 All notable changes to the MyKey web client + Android app.
 Versions follow the client's own line; the vault format it speaks
-is Vault v3 (desktop engine 2.1.0).
+is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
@@ -20,6 +20,29 @@ is Vault v3 (desktop engine 2.1.0).
   normally — the set date falls back to the entry's creation date,
   or reads "date not recorded". Same semantics, file fields and
   fixture gate as the desktop engine.
+
+## [1.2.0] — 2026-10-13
+
+The blob wave: backup packages round-trip through this client.
+
+- MKBAK v2 export and import, byte-compatible with the desktop
+  engine (2.2.0) — fixtures regenerate from the Python repo and
+  the Python cross-check opens this client's packages, so the
+  formats cannot drift.
+- Two-factor recovery: newer backup packages open outside the app
+  only with the recovery phrase AND an 8-word backup code
+  together. The code is generated at export, shown once, and
+  never stored. Legacy v1 packages still restore phrase-only and
+  are labelled LEGACY.
+- This client holds its own device identity, enrolls in the
+  vault, and restores its own packages directly (no phrase, no
+  code).
+- Key-value pairing: pair devices, cloud folders, and backup
+  targets by payload + fingerprint confirmation; the registry
+  lives in the encrypted vault. Exports wrap only to active
+  pairings with the export scope; a sync folder tied to a pairing
+  saves/loads only while that pairing is active with the matching
+  permission. Revoke/disable/expire from the pairing screen.
 
 ## [1.1.0] — 2026-10-13
 

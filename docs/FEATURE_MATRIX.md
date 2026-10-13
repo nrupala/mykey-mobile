@@ -1,6 +1,6 @@
 # Feature matrix — MyKey web client (PWA) + Android app
 
-Exact status of every feature, as of the 1.1.0 polish wave plus
+Exact status of every feature, as of the 1.2.0 blob wave plus
 the password-rotation wave (2026-10-13). "Deferred" means deliberately not built yet, not
 broken. "Platform-blocked" means the platform cannot genuinely do
 it, the app says so in plain words, and a working fallback is
@@ -42,9 +42,11 @@ offered instead.
 | Export the encrypted vault file | Implemented | Download on web, system share sheet on Android. |
 | Import a vault file | Implemented | Replaces the device copy only after explicit confirmation when it is a different vault. |
 | MKBAK backup — restore (recovery recipient) | Implemented | Full Python-path checks: source fingerprint recomputed + must match one the user supplies independently, Ed25519 signature verified, downgrade refused, older-than-last-restored warns. |
-| MKBAK backup — create a package | Deferred | Export requires an enrolled device identity, which the web client does not hold in v1; desktop creates packages. |
-| MKBAK backup — device-recipient restore | Deferred | Needs the receiving device's private key; the recovery path covers fresh-device restore in v1. |
-| Sync via a folder (your own cloud drive) | Implemented (desktop Chromium) | File System Access API: pick a folder, the app reads/writes `vault.mykey` + timestamped snapshots. Permission is re-checked every use; nothing runs in the background. |
+| MKBAK backup — two-factor recovery (v2) | Implemented | Newer packages (format v2) open outside the app only with the recovery phrase AND the backup code together — either one alone fails, a wrong code fails closed. Older v1 packages still restore with the phrase alone and are labelled LEGACY on screen. |
+| MKBAK backup — create a package | Implemented | The client holds its own device identity (enrolled in the vault by the user), exports MKBAK v2 packages, and shows the backup code exactly once with store-it-apart guidance. The code is never stored. |
+| MKBAK backup — device-recipient restore | Implemented | An enrolled device restores its own vault's packages directly — no phrase, no code (inside the trust boundary). |
+| Key-value pairing | Implemented | Targets (device / cloud-folder / export) pair by payload + fingerprint confirmation; the registry lives inside the encrypted vault. Backup exports wrap only to active pairings holding the export scope; a sync folder tied to a pairing saves/loads only while that pairing is active with the matching permission. Revoked, disabled, or expired pairings get nothing new. |
+| Sync via a folder (your own cloud drive) | Implemented (desktop Chromium) | File System Access API: pick a folder, the app reads/writes `vault.mykey` + timestamped snapshots. Permission is re-checked every use; nothing runs in the background. When the folder is tied to a pairing, the pairing gate above applies to every save and load. |
 | Sync on Firefox / Safari | Platform-blocked, fallback offered | No File System Access API: use Download + Open-file. The app says this plainly and never pretends to folder-sync. |
 | Sync in the Android app | Implemented as an explicit file flow (verified behaviour) | The Android WebView provides no directory picker, so folder sync is never offered there — the capability is detected at runtime and the decision is unit-tested (`folderSyncOffered`: native ⇒ never). Instead, Settings labels the real flow in plain words: "Download my vault file" saves the encrypted vault into the user's cloud app via the share sheet; "Load a vault file from my cloud app" brings a newer copy back (different-vault loads ask first, then the app locks and the user unlocks the loaded copy). The app cannot silently sync on Android and does not claim to. |
 | WebDAV sync | Deferred | The desktop covers WebDAV; the web client ships folder flows only in v1. |

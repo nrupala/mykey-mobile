@@ -1,7 +1,7 @@
 {
  "password": "Correct-Horse-2026!",
  "phrase": "legal winner thank year wave sausage worth useful legal winner thank yellow",
- "vault_id": "2690b6087152423faa8bb475d30b5103",
+ "vault_id": "6adeb46fb15940c48f750f7e21d2cc7b",
  "entries": [
   {
    "service": "github",
@@ -44,8 +44,16 @@
   "at_1111111109": "081804"
  },
  "backup": {
-  "source_fingerprint": "8db9:201d:5aaa:ae62:606e:0088:378c:a56b",
-  "package_file": "fixture.mykeybak"
+  "source_fingerprint": "a3a1:3b61:e673:0b5e:0bec:1c99:5522:adca",
+  "package_file": "fixture.mykeybak",
+  "backup_code": "gaze evoke cream wealth modify custom trap enter",
+  "legacy_file": "fixture-v1.mykeybak"
+ },
+ "pairing": {
+  "target_id": "427b4a1c30064aa19dab88a4a9c7dfe9",
+  "fingerprint": "c356:3328:8d6c:bd20:1df2:6926:9f2b:cc8b",
+  "priv_b64": "6GD8w3RYJkEOGx7u9dcGzLanVpiYvP8fY7NlJkuFbVI=",
+  "revoked_package_file": "fixture-nopair.mykeybak"
  },
  "rotation": {
   "default_rotate_days": 120,
@@ -68,7 +76,7 @@
  },
  "agent": {
   "id": "fixture-agent",
-  "token": "mkag1.fixture-agent.MB2cV8JUD0wTo53GxR2mbDdYQfunGRNn2TOfu2LtvM4",
+  "token": "mkag1.fixture-agent.Sj_aPH5jKvjloKhr7wk2J_XO2gmDu1rDSGy8EVM5erY",
   "scopes": [
    "list",
    "get:github"
