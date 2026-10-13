@@ -1,0 +1,58 @@
+{
+ "password": "Correct-Horse-2026!",
+ "phrase": "legal winner thank year wave sausage worth useful legal winner thank yellow",
+ "vault_id": "35df51f3fd804ffea50905bd7256846d",
+ "entries": [
+  {
+   "service": "github",
+   "username": "octocat",
+   "password": "fake-gh-pass-123",
+   "url": "https://github.com",
+   "notes": "fake entry for interop tests",
+   "totp_secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+   "tags": [
+    "dev"
+   ],
+   "favourite": true
+  },
+  {
+   "service": "bank",
+   "username": "joint",
+   "password": "fake-bank-pass-456",
+   "url": "https://bank.example",
+   "notes": "",
+   "totp_secret": "",
+   "tags": [
+    "finance"
+   ],
+   "favourite": false
+  },
+  {
+   "service": "email",
+   "username": "user@example.com",
+   "password": "fake-mail-pass-789",
+   "url": "",
+   "notes": "no totp here",
+   "totp_secret": "",
+   "tags": [],
+   "favourite": false
+  }
+ ],
+ "totp": {
+  "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+  "at_59": "287082",
+  "at_1111111109": "081804"
+ },
+ "backup": {
+  "source_fingerprint": "48aa:1618:ba56:4049:7542:a9aa:0591:465a",
+  "package_file": "fixture.mykeybak"
+ },
+ "agent": {
+  "id": "fixture-agent",
+  "token": "mkag1.fixture-agent.WFEYKswZeMs1681XWQ2Y2eKUuG9uKrz564ZY_SoZiiU",
+  "scopes": [
+   "list",
+   "get:github"
+  ]
+ }
+}

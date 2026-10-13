@@ -1,0 +1,186 @@
+/* Licensed under the Apache License, Version 2.0 — see LICENSING.md.
+   Copyright (c) 2026 2351485 ALBERTA INC. */
+
+/* MyKey web client — plain, high-contrast, big targets.
+   Designed for the technically least-able customer: one obvious
+   next action per screen, words over icons, nothing decorative
+   that moves. */
+
+:root {
+  --ink: #10222e;
+  --paper: #ffffff;
+  --brand: #0b3d5c;
+  --brand-ink: #ffffff;
+  --accent: #0b6e2f;
+  --danger: #a01717;
+  --muted: #44586a;
+  --line: #c9d6df;
+  --focus: #f0b43c;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 100%; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.5;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--brand);
+  color: var(--brand-ink);
+  padding: 0.75rem 1rem;
+  z-index: 10;
+}
+.skip-link:focus { left: 0; }
+
+.app-header {
+  background: var(--brand);
+  color: var(--brand-ink);
+  padding: 1rem 1.25rem;
+}
+.app-title { margin: 0; font-size: 1.6rem; }
+.app-tagline { margin: 0.15rem 0 0; opacity: 0.9; }
+
+main {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.app-footer {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+h2 { font-size: 1.45rem; margin: 0.5rem 0; }
+h2:focus { outline: none; }
+h3 { font-size: 1.2rem; margin: 0.25rem 0 0.75rem; }
+.lede { font-size: 1.05rem; color: var(--ink); }
+
+.btn {
+  display: inline-block;
+  font: inherit;
+  font-size: 1.05rem;
+  padding: 0.8rem 1.2rem;
+  min-height: 3rem;
+  border: 2px solid var(--brand);
+  border-radius: 0.6rem;
+  background: var(--paper);
+  color: var(--brand);
+  cursor: pointer;
+  text-align: center;
+}
+.btn-primary { background: var(--brand); color: var(--brand-ink); }
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+.btn:focus-visible, .text-input:focus-visible, .entry-item:focus-visible,
+a:focus-visible, input[type="checkbox"]:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.form { display: grid; gap: 1rem; margin-top: 1rem; }
+.field { display: grid; gap: 0.35rem; }
+.field label { font-weight: 600; }
+.text-input {
+  font: inherit;
+  padding: 0.7rem 0.8rem;
+  border: 2px solid var(--line);
+  border-radius: 0.5rem;
+  width: 100%;
+  background: var(--paper);
+  color: var(--ink);
+}
+.hint { color: var(--muted); font-size: 0.92rem; margin: 0.15rem 0 0; }
+.status { color: var(--muted); min-height: 1.2em; }
+.or { text-align: center; color: var(--muted); margin: 0.5rem 0; }
+
+.alert { padding: 0.8rem 1rem; border-radius: 0.5rem; margin: 0.75rem 0; }
+.alert-error { background: #fdecec; border: 2px solid var(--danger); color: #5f0d0d; }
+.alert-info { background: #e9f3fa; border: 2px solid var(--brand); color: #0d3049; }
+.hidden { display: none !important; }
+
+.card {
+  border: 2px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.action-stack { display: grid; gap: 0.75rem; margin-top: 1rem; }
+.action-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+
+.toolbar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+  margin: 0.75rem 0;
+}
+.toolbar .text-input { flex: 1; }
+
+.entry-list { display: grid; gap: 0.6rem; margin: 1rem 0; }
+.entry-item {
+  display: grid;
+  gap: 0.1rem;
+  text-align: left;
+  font: inherit;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--paper);
+  cursor: pointer;
+  width: 100%;
+}
+.entry-item.selected { border-color: var(--brand); background: #eef6fb; }
+.entry-service { font-weight: 700; font-size: 1.08rem; }
+.entry-user { color: var(--muted); }
+.entry-totp { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+
+.kv {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+.kv-label { font-weight: 600; min-width: 7.5rem; }
+.kv-value { overflow-wrap: anywhere; }
+.kv-value.code { font-size: 1.3rem; letter-spacing: 0.12em; font-variant-numeric: tabular-nums; }
+
+.phrase-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.5rem;
+  padding-left: 1.5rem;
+  font-size: 1.15rem;
+}
+.phrase-grid li { padding: 0.4rem 0.2rem; }
+
+.checkbox { display: flex; gap: 0.6rem; align-items: flex-start; font-weight: 500; }
+.checkbox input { width: 1.4rem; height: 1.4rem; margin-top: 0.1rem; flex: none; }
+
+.settings { margin-top: 2rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+@media (max-width: 30rem) {
+  .toolbar { flex-direction: column; }
+  .kv-label { min-width: 100%; }
+}
