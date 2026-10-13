@@ -177,6 +177,7 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 .entry-service { font-weight: 700; font-size: 1.08rem; }
 .entry-user { color: var(--muted); }
 .entry-totp { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+.entry-rotation { color: var(--warn, #b45309); font-weight: 600; }
 
 .kv {
   display: flex;
@@ -280,15 +281,6 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 }
 .warning-panel h3 { margin: 0; }
 
-/* In-app help documents (rendered from HELP.md / FAQ.md). */
-.help-doc { display: grid; gap: 0.6rem; margin: 1rem 0; }
-.help-doc h3 { margin: 0.8rem 0 0; font-size: 1.35rem; color: var(--brand); }
-.help-doc h4 { margin: 0.7rem 0 0; font-size: 1.12rem; }
-.help-doc h5 { margin: 0.6rem 0 0; font-size: 1rem; }
-.help-doc p { margin: 0; line-height: 1.55; }
-.help-doc ul { margin: 0; padding-left: 1.3rem; display: grid; gap: 0.35rem; }
-.help-doc li { line-height: 1.5; }
-
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
@@ -297,3 +289,12 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
   .toolbar { flex-direction: column; }
   .kv-label { min-width: 100%; }
 }
+
+/* In-app help documents (rendered from HELP.md / FAQ.md). */
+.help-doc { display: grid; gap: 0.6rem; margin: 1rem 0; }
+.help-doc h3 { margin: 0.8rem 0 0; font-size: 1.35rem; color: var(--brand); }
+.help-doc h4 { margin: 0.7rem 0 0; font-size: 1.12rem; }
+.help-doc h5 { margin: 0.6rem 0 0; font-size: 1rem; }
+.help-doc p { margin: 0; line-height: 1.55; }
+.help-doc ul { margin: 0; padding-left: 1.3rem; display: grid; gap: 0.35rem; }
+.help-doc li { line-height: 1.5; }

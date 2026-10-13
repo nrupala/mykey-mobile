@@ -6,17 +6,32 @@ is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
-- Built-in help, fully offline: "How MyKey works" and "Common
-  questions" ship inside the app (no network, no web view). The
-  text is the canonical copy from the desktop repo, mirrored
-  byte-for-byte; the PWA CI fails if the copies drift. Help is
-  reachable from the locked screen — a locked-out user is who
-  needs the recovery answers — and from Settings.
-- About screen: app name and version, seller 2351485 ALBERTA
-  INC., support address, the linked attribution line with the
-  Muse referral code, a licence summary, and a changelog
-  pointer. A marked slot waits for the licence / tip block if
-  the free-tier ruling lands.
+- **Password age + rotation.** The app notes the day each password
+  was set — inside the encrypted vault, next to the password
+  itself. Changing a password restarts its clock automatically;
+  "Mark as changed today" covers passwords changed on the website.
+  Passwords are due for a change after 180 days by default; the
+  vault default is changeable in Settings (including Never), and
+  each entry can carry its own period or opt out. Due states are
+  calm: a small badge in the list, a count at unlock, and a
+  Password rotation section listing what needs attention. No
+  notifications and no new permissions in this version (planned
+  as future work). Vaults written before this feature open
+  normally — the set date falls back to the entry's creation date,
+  or reads "date not recorded". Same semantics, file fields and
+  fixture gate as the desktop engine.
+
+- **Built-in help, fully offline.** "How MyKey works" and
+  "Common questions" ship inside the app (no network, no web
+  view). The text is the canonical copy from the desktop repo,
+  mirrored byte-for-byte; the PWA CI fails if the copies drift.
+  Help is reachable from the locked screen — a locked-out user
+  is who needs the recovery answers — and from Settings.
+- **About screen.** App name and version, seller 2351485
+  ALBERTA INC., support address, the linked attribution line
+  with the Muse referral code, a licence summary, and a
+  changelog pointer. A marked slot waits for the licence / tip
+  block if the free-tier ruling lands.
 
 ## [1.2.0] — 2026-10-13
 
