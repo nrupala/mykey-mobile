@@ -1,0 +1,101 @@
+{
+ "ext_priv_b64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+ "ext_pub_b64": "E75P6uryBMf9M1j8nAByGIHRdCeBKCJ+xnTzf3/pe20=",
+ "host_pub_b64": "V9tLNZ8jrl4Ubk4lEgVnBHIlBjSMFQwUdT0Mkz0E1CE=",
+ "client_nonce_b64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+ "server_nonce_b64": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+ "session_id": "f818afd37a6dc3bc92fb447310112770",
+ "keys": {
+  "e2h": "4bd60a011407c3aa523abee72e48efcef6c1e17b25820703f41fe96d7f3082eb",
+  "h2e": "21f44f0b8992d7e8b23b25127a1e01af82151c3f1aad85fc969e77995c53d0c5"
+ },
+ "e2h": [
+  {
+   "message": {
+    "kind": "unlock",
+    "id": 1,
+    "password": "fixture-master-pass-13"
+   },
+   "frame": {
+    "kind": "sealed",
+    "session": "f818afd37a6dc3bc92fb447310112770",
+    "seq": 0,
+    "nonce": "ZTJoAAAAAAAAAAAA",
+    "ct": "yAzqU+8XlBIB6iMZmhEympC34k8YaXp3D0ydwq2lzteWeipt/vT91oKXIm3lkBf1xhVoxcMj8rEqJwVFMAeTCNBCLOo+hLoabbVpOg=="
+   }
+  },
+  {
+   "message": {
+    "kind": "match",
+    "id": 2,
+    "origin": "https://github.com"
+   },
+   "frame": {
+    "kind": "sealed",
+    "session": "f818afd37a6dc3bc92fb447310112770",
+    "seq": 1,
+    "nonce": "ZTJoAAAAAAAAAAAB",
+    "ct": "PG0rXcPl87DX7euBNwd835ARnqF1wu6yreipehw0PgpuJaNcNg0bgg9h6LyRMDqY3PErzTkG0ROsQU7si50oT7zXmQsT"
+   }
+  },
+  {
+   "message": {
+    "kind": "fill",
+    "id": 3,
+    "entry_id": "abc123",
+    "origin": "https://github.com"
+   },
+   "frame": {
+    "kind": "sealed",
+    "session": "f818afd37a6dc3bc92fb447310112770",
+    "seq": 2,
+    "nonce": "ZTJoAAAAAAAAAAAC",
+    "ct": "Bemj70HqEI8jUiJo4AmQmyGs6/1lmOx55RYli5T0607oaQnejpjYS6zSM+PX0+bzPSSq05aqsJgkwcMw+iJhO0BZFKai9GDVKnXPRc7OEJd92w6AtpfCBw=="
+   }
+  }
+ ],
+ "h2e": [
+  {
+   "message": {
+    "kind": "hello_ack",
+    "protocol": "mykey-ext-v1",
+    "unlocked": false,
+    "vault_configured": true,
+    "scopes": [
+     "fill",
+     "save"
+    ]
+   },
+   "frame": {
+    "kind": "sealed",
+    "session": "f818afd37a6dc3bc92fb447310112770",
+    "seq": 0,
+    "nonce": "aDJlAAAAAAAAAAAA",
+    "ct": "m3qQWYDO80VemtT7t0OLenO4cqwcJFAFgcSCrh15zWn2SkIHzMyEB6SRwGyYO/jy0wb2LmfvlztOuvnIcGl6oZdKZ6xd2+TDmDzHRENqcqYin2qlbvLxq7secwagu55Ccnewj8hJI8Jvgp1HHveRea8BIfilOajHSD92BpZTW2E="
+   }
+  },
+  {
+   "message": {
+    "kind": "result",
+    "id": 2,
+    "ok": true,
+    "matches": [
+     {
+      "id": "abc123",
+      "service": "GitHub",
+      "username": "octocat",
+      "has_totp": true,
+      "fill_subdomains": false
+     }
+    ]
+   },
+   "frame": {
+    "kind": "sealed",
+    "session": "f818afd37a6dc3bc92fb447310112770",
+    "seq": 1,
+    "nonce": "aDJlAAAAAAAAAAAB",
+    "ct": "b+01fHg4m2Yny28SnP5yi1cq1fKo6nX85dwvax2Mr9JETgIpRnCuOgEvKeYo1GO4M/O/LaNvBqPims3Ate2RTz7TzhhZe8/PlfACQY/WY1RDFpyltE/yotQ8VOStZ/Fo+ZkozMrpbwLPfalSycC+3N5r9OD2NT4WyzvhIxFpoLMoMA1fqboYvbtqRhJa2snLSxVZBKwMJ5zf46sDkxo="
+   }
+  }
+ ]
+}

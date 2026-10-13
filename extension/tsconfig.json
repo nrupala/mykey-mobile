@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noUncheckedIndexedAccess": true,
+    "outDir": "dist-build",
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": [
+      "node"
+    ],
+    "rootDir": "..",
+    "resolveJsonModule": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "build.mjs",
+    "vitest.config.ts"
+  ]
+}

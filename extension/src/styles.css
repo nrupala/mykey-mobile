@@ -1,0 +1,173 @@
+/* Apache License 2.0 — Copyright (c) 2026 2351485 ALBERTA INC.
+   Extension page styles (interface layer). Calm, high-contrast,
+   one obvious action per state — the simplicity doctrine. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #14181c;
+  --muted: #5a6672;
+  --accent: #2f7fd0;
+  --accent-fg: #ffffff;
+  --card: #f2f5f7;
+  --danger: #b3261e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101418;
+    --fg: #f2f5f7;
+    --muted: #9aa7b1;
+    --card: #1a2129;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 system-ui, sans-serif;
+  min-width: 320px;
+}
+
+body.options {
+  min-width: 0;
+}
+
+main {
+  padding: 14px 16px 10px;
+  max-width: 560px;
+}
+
+body.options main {
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+h2 {
+  font-size: 14px;
+  margin: 14px 0 6px;
+}
+
+button {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--muted);
+}
+
+button.small {
+  padding: 3px 9px;
+  font-size: 13px;
+}
+
+input[type="password"],
+input[type="text"],
+input[type="number"],
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--muted);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  margin: 4px 0 8px;
+}
+
+textarea {
+  min-height: 110px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+label {
+  font-weight: 600;
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+li.match {
+  background: var(--card);
+  border-radius: 10px;
+  padding: 9px 11px;
+  margin: 0 0 8px;
+}
+
+li.match .who {
+  font-weight: 600;
+}
+
+li.match .actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+li.match .sub {
+  display: block;
+  margin-top: 6px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.row input[type="number"] {
+  width: 70px;
+}
+
+.secret {
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.fine {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.error {
+  color: var(--danger);
+}
+
+.fingerprint {
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+  background: var(--card);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+footer {
+  margin-top: 14px;
+}

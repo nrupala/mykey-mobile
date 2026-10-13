@@ -1,0 +1,89 @@
+# Browser extension: typecheck, unit + leak suites, the real-host
+# integration suite against nrupala/mykey@main, channel-vector
+# drift check, and the store-ready zips as artifacts.
+name: extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension.yml"
+  pull_request:
+    paths:
+      - "extension/**"
+      - ".github/workflows/extension.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out mykey-mobile
+        uses: actions/checkout@v4
+        with:
+          path: mykey-mobile
+
+      - name: Check out the desktop host (nrupala/mykey)
+        uses: actions/checkout@v4
+        with:
+          repository: nrupala/mykey
+          path: mykey-py
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: mykey-mobile/extension/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the desktop host's deps (for the real-host suites)
+        run: pip install -r "$GITHUB_WORKSPACE/mykey-py/requirements.txt" "pytest>=8"
+
+      - name: Install extension deps
+        working-directory: mykey-mobile/extension
+        run: npm ci
+
+      - name: Channel vectors must not drift from the Python host
+        working-directory: mykey-mobile/extension
+        run: |
+          python scripts/make_channel_vectors.py \
+            --desktop "$GITHUB_WORKSPACE/mykey-py" \
+            --out "$RUNNER_TEMP/channel-vectors.json"
+          diff -u tests/fixtures/channel-vectors.json \
+            "$RUNNER_TEMP/channel-vectors.json"
+
+      - name: Typecheck
+        working-directory: mykey-mobile/extension
+        run: npm run typecheck
+
+      - name: Test (unit + leak + real-host integration)
+        working-directory: mykey-mobile/extension
+        env:
+          MYKEY_DESKTOP_DIR: ${{ github.workspace }}/mykey-py
+        run: npm test
+
+      - name: Desktop host test suite
+        working-directory: mykey-py
+        run: python -m pytest tests/test_native_host.py -q
+
+      - name: Build store packages
+        working-directory: mykey-mobile/extension
+        run: npm run build
+
+      - name: Upload store-ready zips
+        uses: actions/upload-artifact@v4
+        with:
+          name: mykey-extension
+          path: |
+            mykey-mobile/extension/dist/mykey-extension-chromium.zip
+            mykey-mobile/extension/dist/mykey-extension-firefox.zip
+          retention-days: 90
