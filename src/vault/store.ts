@@ -21,6 +21,11 @@
  * to the web sandbox — local storage protection, not an OS
  * keystore claim). */
 
+import {
+  CLIPBOARD_CLEAR_DEFAULT_SECONDS,
+  clampClipboardClearSeconds,
+} from "../platform/clipboard.js";
+
 const DB_NAME = "mykey-web";
 const STORE = "kv";
 
@@ -34,7 +39,9 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   autoLockMinutes: 5,
   lockOnHide: true,
-  clipboardClearSeconds: 30,
+  // Leakage rule: 1 minute by default; the bounds live in
+  // platform/clipboard.ts and nowhere else.
+  clipboardClearSeconds: CLIPBOARD_CLEAR_DEFAULT_SECONDS,
   deviceSlotEnabled: false,
 };
 
@@ -100,7 +107,13 @@ export const store = {
   clearLastBackupAt: () => idbDelete("lastBackupAt"),
   async getSettings(): Promise<AppSettings> {
     const raw = await idbGet<Partial<AppSettings>>("settings");
-    return { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+    const merged = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+    // Single validation point: any stored delay (including values
+    // saved before the 60–300s bounds existed) is clamped on load.
+    merged.clipboardClearSeconds = clampClipboardClearSeconds(
+      merged.clipboardClearSeconds,
+    );
+    return merged;
   },
   setSettings: (s: AppSettings) => idbSet("settings", s),
   getSyncDirHandle: () => idbGet<FileSystemDirectoryHandle>("syncDirHandle"),

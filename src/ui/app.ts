@@ -103,6 +103,10 @@ import {
   syncFolderPush,
   syncFolderSupported,
 } from "../platform/filesync.js";
+import {
+  clampClipboardClearSeconds,
+  clipboardGuard,
+} from "../platform/clipboard.js";
 
 // ------------------------------------------------------------------
 // Tiny DOM helpers
@@ -195,7 +199,6 @@ interface AppState {
   syncTargetId: string | null;
   autoLockTimer: number | null;
   totpTimer: number | null;
-  clipTimer: number | null;
 }
 
 const state: AppState = {
@@ -206,7 +209,6 @@ const state: AppState = {
   syncTargetId: null,
   autoLockTimer: null,
   totpTimer: null,
-  clipTimer: null,
 };
 
 const main = () => document.querySelector("main")!;
@@ -271,27 +273,28 @@ function lock(notice?: string): void {
   state.session?.lock();
   state.session = null;
   stopTimers();
+  // Locking clears a copied secret right away — it never waits
+  // for the clipboard timer (platform/clipboard.ts holds the rule).
+  void clipboardGuard.clearNow();
   void renderLocked(notice);
 }
 
+function clearDelayLabel(seconds: number): string {
+  return seconds % 60 === 0
+    ? `${seconds / 60} minute${seconds === 60 ? "" : "s"}`
+    : `${seconds} seconds`;
+}
+
 async function copySecret(value: string, what: string, status: HTMLElement): Promise<void> {
+  const seconds = clampClipboardClearSeconds(state.settings.clipboardClearSeconds);
   try {
-    await navigator.clipboard.writeText(value);
+    await clipboardGuard.copy(value, seconds);
   } catch {
     status.textContent = `Copy failed — your browser blocked it. You can reveal and copy by hand.`;
     return;
   }
-  status.textContent = `${what} copied. It will be cleared from the clipboard shortly.`;
-  if (state.clipTimer !== null) window.clearTimeout(state.clipTimer);
-  const seconds = Math.max(5, state.settings.clipboardClearSeconds);
-  state.clipTimer = window.setTimeout(async () => {
-    try {
-      const current = await navigator.clipboard.readText();
-      if (current === value) await navigator.clipboard.writeText("");
-    } catch {
-      /* clipboard no longer ours or unreadable — leave it */
-    }
-  }, seconds * 1000);
+  status.textContent =
+    `${what} copied. It clears itself from the clipboard after ${clearDelayLabel(seconds)}.`;
 }
 
 // ------------------------------------------------------------------
@@ -1638,6 +1641,29 @@ function settingsPanel(): HTMLElement {
       "Passwords are due for a change this long after they were set, unless an entry has its own period."),
     rotateDefaultCustomField,
   );
+
+  // Clipboard clear delay — bounded by the product rule (1–5
+  // minutes; platform/clipboard.ts clamps anything outside).
+  const clipSelect = el("select", { class: "text-input" }) as HTMLSelectElement;
+  for (const [label, value] of [
+    ["1 minute", "60"], ["2 minutes", "120"], ["3 minutes", "180"],
+    ["4 minutes", "240"], ["5 minutes", "300"],
+  ] as const) {
+    const opt = el("option", { value }, label);
+    if (Number(value) === clampClipboardClearSeconds(state.settings.clipboardClearSeconds)) {
+      opt.selected = true;
+    }
+    clipSelect.append(opt);
+  }
+  clipSelect.addEventListener("change", async () => {
+    state.settings = {
+      ...state.settings,
+      clipboardClearSeconds: clampClipboardClearSeconds(Number(clipSelect.value)),
+    };
+    await store.setSettings(state.settings);
+    status.textContent = "Clipboard clear time saved.";
+  });
+  panel.append(field("Clear copied passwords after", clipSelect));
 
   const actions = el("div", { class: "action-stack" });
   actions.append(
