@@ -33,11 +33,10 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Set up the Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install SDK packages
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - name: Install SDK packages (runner-provided Android SDK)
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
       - name: Build the web client and sync Capacitor
         run: |
