@@ -45,8 +45,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install the desktop host's crypto deps
-        run: pip install "cryptography>=42" "argon2-cffi>=23"
+      - name: Install the desktop host's deps (for the real-host suites)
+        run: pip install -r "$GITHUB_WORKSPACE/mykey-py/requirements.txt" "pytest>=8"
 
       - name: Install extension deps
         working-directory: mykey-mobile/extension
