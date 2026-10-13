@@ -4,6 +4,18 @@ All notable changes to the MyKey web client + Android app.
 Versions follow the client's own line; the vault format it speaks
 is Vault v3 (desktop engine 2.2.0).
 
+## [Unreleased]
+
+### Fixed — Android autofill bindings survive a save in this client
+- Entries can carry an `android_app` binding (package name +
+  signing-certificate hash) written by the desktop engine / the
+  Android autofill flow. This client's metadata field list did
+  not include it, so opening such a vault here and saving
+  anything silently dropped every binding. The field is now
+  carried verbatim through load and save (validated with the
+  desktop's rules; malformed bindings load as none), with a
+  round-trip test standing guard.
+
 ## [1.3.0] — 2026-10-13
 
 Licensing wave — the free tier and the signed licence key, in
