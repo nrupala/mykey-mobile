@@ -58,6 +58,21 @@ def main():
     app.unlock()  # creates a fresh Vault v3 vault
     for e in ENTRIES:
         app.add_entry(make_entry(**e))
+    # Password rotation state at fixed values (rotation wave): the
+    # TS client asserts these exact fields and the statuses derived
+    # at status_now, and the Python cross-check asserts the fields
+    # survive a TS round trip. github: 90-day override, 100 days in
+    # -> overdue. bank: vault default (120), 100 days in -> ok.
+    # email: never rotate -> off.
+    ROT_PSA = 1_700_000_000
+    app.set_default_rotate_days(120)
+    for e in app._entries:
+        e["password_set_at"] = ROT_PSA
+        if e["service"] == "github":
+            e["rotate_days"] = 90
+        elif e["service"] == "email":
+            e["rotate_days"] = 0
+    app._persist()
     # Fixed-phrase recovery slot + Phase 3A backup recovery recipient,
     # set exactly the way setup_recovery does, but with the public
     # test phrase so the TS client can exercise the same paths.
@@ -103,6 +118,16 @@ def main():
         "backup": {
             "source_fingerprint": ident.fingerprint,
             "package_file": "fixture.mykeybak",
+        },
+        "rotation": {
+            "default_rotate_days": 120,
+            "password_set_at": ROT_PSA,
+            "status_now": ROT_PSA + 100 * 86400,
+            "entries": {
+                "github": {"rotate_days": 90, "state": "overdue"},
+                "bank": {"rotate_days": None, "state": "ok"},
+                "email": {"rotate_days": 0, "state": "off"},
+            },
         },
         "agent": {"id": "fixture-agent", "token": token,
                   "scopes": ["list", "get:github"]},

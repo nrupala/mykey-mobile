@@ -1,7 +1,7 @@
 # Feature matrix — MyKey web client (PWA) + Android app
 
-Exact status of every feature, as of the 1.1.0 polish wave
-(2026-10-13). "Deferred" means deliberately not built yet, not
+Exact status of every feature, as of the 1.1.0 polish wave plus
+the password-rotation wave (2026-10-13). "Deferred" means deliberately not built yet, not
 broken. "Platform-blocked" means the platform cannot genuinely do
 it, the app says so in plain words, and a working fallback is
 offered instead.
@@ -30,6 +30,8 @@ offered instead.
 | Password generator | Implemented | ≥ 16 characters (default 20), unbiased random selection, desktop's alphabet. |
 | TOTP sign-in codes | Implemented | Live code + countdown, RFC 6238, accepts raw secrets and otpauth:// values. |
 | Favourites, tags | Implemented | Favourites pin to the top; tags are plain text, comma-separated. |
+| Password age + rotation | Implemented | The day each password was set is stored inside the encrypted secret blob (never in plaintext, never in agent-visible listings) and shown in plain words ("Password set 13 Oct 2026 · change by 11 Apr 2027"). Changing the password restarts the clock; other edits never touch it; "Mark as changed today" covers website-side changes. Due after 180 days by default; Settings changes the vault default (or Never); the edit form sets a per-entry period or Never. Calm surfacing only: list badge, a count at unlock, and a Password rotation section. No notifications in this version (future work; no new permissions). Pre-feature vaults open with the creation date as the set date, else "date not recorded". Desktop-identical semantics, proven both directions through the fixture gate. |
+| Notifications for due passwords | Deferred (future work) | Deliberately not in this wave: reminders are in-app only, and the app holds no notification permission. |
 | Import from browsers (CSV) | Implemented | Chromium family (Chrome/Edge/Brave/Opera/Vivaldi/Arc/Google Password Manager) and Firefox exports are recognised by header signature; anything else gets a by-hand column mapping. Mirrors the desktop importer: (service, username) keys, same-password = duplicate (skipped), different password = conflict with a plain-language choice (keep mine / use the file's / keep both). The file is parsed locally and never uploaded; imported entries land encrypted in the vault. Other managers' formats (Bitwarden, 1Password, …) arrive through the generic mapping in this client; their dedicated parsers remain desktop-only for now. |
 | Export to CSV (readable file) | Implemented, deliberately gated | Same columns as the desktop exporter (Service, Username, Password, URL, Notes). There is no one-tap path: a warning screen states in plain words that the file is unencrypted and readable by anyone, and the export button stays disabled until the user ticks the understanding checkbox. An empty vault exports nothing. |
 

@@ -177,6 +177,7 @@ input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
 .entry-service { font-weight: 700; font-size: 1.08rem; }
 .entry-user { color: var(--muted); }
 .entry-totp { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+.entry-rotation { color: var(--warn, #b45309); font-weight: 600; }
 
 .kv {
   display: flex;

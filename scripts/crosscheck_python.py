@@ -83,12 +83,48 @@ def modified():
 check("python sees the TS edits and the TS-added entry", modified)
 
 
+def rotation_survives_ts_resave():
+    rot = expected["rotation"]
+    v = open_py(stage("resaved.mykey", (OUT / "resaved.mykey").read_bytes()))
+    assert v.vault_settings()["default_rotate_days"] == \
+        rot["default_rotate_days"]
+    entries = {e["service"]: e for e in v.list_entries()}
+    for service, want in rot["entries"].items():
+        e = entries[service]
+        assert e["password_set_at"] == rot["password_set_at"], (service, e)
+        assert e["rotate_days"] == want["rotate_days"], (service, e)
+
+
+check("python sees rotation fields intact after a TS resave",
+      rotation_survives_ts_resave)
+
+
+def rotation_clock_reset_by_ts():
+    rot = expected["rotation"]
+    v = open_py(stage("modified.mykey", (OUT / "modified.mykey").read_bytes()))
+    entries = {e["service"]: e for e in v.list_entries()}
+    # The TS client changed github's password: its clock must have
+    # reset off the fixture value, and its override must survive.
+    assert entries["github"]["password_set_at"] > rot["password_set_at"]
+    assert entries["github"]["rotate_days"] == 90
+    # The untouched entry keeps its fixture state exactly.
+    assert entries["bank"]["password_set_at"] == rot["password_set_at"]
+    assert entries["bank"]["rotate_days"] is None
+
+
+check("a TS password change resets the clock Python reads",
+      rotation_clock_reset_by_ts)
+
+
 def created():
     info = json.loads((OUT / "created-expected.json").read_text())
     path = stage("created.mykey", (OUT / "created.mykey").read_bytes())
     v = open_py(path, info["password"])
     entries = v.list_entries()
     assert len(entries) == 1 and entries[0]["service"] == "created-service"
+    # A TS-created vault carries the standard 180-day default in its
+    # encrypted core settings, readable by the Python engine.
+    assert v.vault_settings()["default_rotate_days"] == 180
     assert entries[0]["totp_secret"] == "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
     # the TS-set recovery phrase must unlock in Python too
     v2 = mykey.MyKey.recover(str(path), info["recovery_phrase"],

@@ -1,7 +1,7 @@
 {
  "password": "Correct-Horse-2026!",
  "phrase": "legal winner thank year wave sausage worth useful legal winner thank yellow",
- "vault_id": "35df51f3fd804ffea50905bd7256846d",
+ "vault_id": "2690b6087152423faa8bb475d30b5103",
  "entries": [
   {
    "service": "github",
@@ -44,12 +44,31 @@
   "at_1111111109": "081804"
  },
  "backup": {
-  "source_fingerprint": "48aa:1618:ba56:4049:7542:a9aa:0591:465a",
+  "source_fingerprint": "8db9:201d:5aaa:ae62:606e:0088:378c:a56b",
   "package_file": "fixture.mykeybak"
+ },
+ "rotation": {
+  "default_rotate_days": 120,
+  "password_set_at": 1700000000,
+  "status_now": 1708640000,
+  "entries": {
+   "github": {
+    "rotate_days": 90,
+    "state": "overdue"
+   },
+   "bank": {
+    "rotate_days": null,
+    "state": "ok"
+   },
+   "email": {
+    "rotate_days": 0,
+    "state": "off"
+   }
+  }
  },
  "agent": {
   "id": "fixture-agent",
-  "token": "mkag1.fixture-agent.WFEYKswZeMs1681XWQ2Y2eKUuG9uKrz564ZY_SoZiiU",
+  "token": "mkag1.fixture-agent.MB2cV8JUD0wTo53GxR2mbDdYQfunGRNn2TOfu2LtvM4",
   "scopes": [
    "list",
    "get:github"
