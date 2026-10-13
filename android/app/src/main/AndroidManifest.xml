@@ -50,6 +50,29 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true" />
 
+        <!-- Autofill: other apps and browsers can ask MyKey to
+             fill. The service itself never holds vault data — see
+             autofill/MyKeyAutofillService.kt. -->
+        <service
+            android:name=".autofill.MyKeyAutofillService"
+            android:label="@string/autofill_service_label"
+            android:description="@string/autofill_service_description"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill.service"
+                android:resource="@xml/autofill_service_config" />
+        </service>
+
+        <activity
+            android:name=".autofill.AutofillAuthActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/AppTheme.AutofillAuth" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -64,7 +87,8 @@
     <!-- No app permissions are requested: the app makes no network
          calls (no INTERNET permission) and needs no device access
          beyond biometrics for the optional unlock. The credential
-         provider service above is guarded by the system's
-         BIND_CREDENTIAL_PROVIDER_SERVICE permission, which is a
-         signature/system binding, not an app permission grant. -->
+         provider and autofill services above are guarded by the
+         system's BIND_CREDENTIAL_PROVIDER_SERVICE and
+         BIND_AUTOFILL_SERVICE permissions, which are
+         signature/system bindings, not app permission grants. -->
 </manifest>

@@ -90,7 +90,7 @@ export const MIN_MASTER_PASSWORD_LENGTH = 12;
 export const MIN_GENERATED_PASSWORD_LENGTH = 16;
 const VERIFIER_LABEL = "vault-verifier-v3";
 const METADATA_FIELDS = ["service", "username", "url", "tags", "favourite", "created", "updated", "android_app", "kind"] as const;
-const ENTRY_FIELDS = ["service", "username", "password", "url", "notes", "totp_secret", "tags", "favourite", "rotate_days"] as const;
+const ENTRY_FIELDS = ["service", "username", "password", "url", "notes", "totp_secret", "tags", "favourite", "rotate_days", "android_app"] as const;
 
 /** Vault-wide default password rotation period in days, matching
  * the Python engine (mykey.py DEFAULT_ROTATE_DAYS). The default
@@ -759,6 +759,7 @@ export class VaultSession {
       "id" | "created" | "updated" | "password_set_at" | "rotate_days" | "kind" | "passkey" | "android_app"
     > & {
       rotate_days?: number | null;
+      android_app?: AndroidAppBinding | null;
     },
   ): Promise<VaultEntry> {
     if (!input.service) throw new Error("entry service must be non-empty");
@@ -787,7 +788,7 @@ export class VaultSession {
       tags: [...input.tags],
       kind: "login",
       passkey: null,
-      android_app: null,
+      android_app: cleanAndroidApp(input.android_app),
       id: uuidHex(),
       created: ts,
       updated: ts,
@@ -884,7 +885,10 @@ export class VaultSession {
     for (const f of ENTRY_FIELDS) {
       if (f in fields) {
         const v = (fields as Record<string, unknown>)[f];
-        (entry as unknown as Record<string, unknown>)[f] = f === "tags" ? [...(v as string[])] : v;
+        (entry as unknown as Record<string, unknown>)[f] =
+          f === "tags" ? [...(v as string[])]
+          : f === "android_app" ? cleanAndroidApp(v)
+          : v;
       }
     }
     // The age clock resets only when the password itself changes —

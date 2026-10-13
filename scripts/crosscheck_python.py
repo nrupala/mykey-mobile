@@ -59,6 +59,7 @@ def view(e):
         "password": e["password"], "url": e["url"], "notes": e["notes"],
         "totp_secret": e["totp_secret"], "tags": e["tags"],
         "favourite": e["favourite"],
+        "android_app": e.get("android_app"),
     }
 
 
@@ -80,7 +81,13 @@ def modified():
     entries = {e["service"]: e for e in v.list_entries()}
     assert entries["github"]["password"] == "ts-changed-password-1", entries["github"]
     assert entries["tsadded"]["password"] == "ts-added-password-1"
-    assert len(entries) == 4
+    # The Android-app binding set by Python survives the TS save.
+    assert entries["shopapp"]["android_app"] == {
+        "package": "com.example.shop",
+        "cert_sha256": "0123456789abcdef" * 4,
+        "label": "Shop App",
+    }, entries["shopapp"]
+    assert len(entries) == 5
 
 
 check("python sees the TS edits and the TS-added entry", modified)
@@ -262,7 +269,10 @@ def ts_export_recovery_two_factor():
     assert result["via"] == "recovery", result
     assert result["package_version"] == 2 and result["legacy"] is False
     v = open_py(str(TMP / "imp-rec.mykey"))
-    assert len(v.list_entries()) == 3
+    assert len(v.list_entries()) == 4
+    # ...and the Android-app binding rides inside the package too.
+    shop = {e["service"]: e for e in v.list_entries()}["shopapp"]
+    assert shop["android_app"]["package"] == "com.example.shop", shop
 
 
 check("python imports the TS v2 package via phrase + backup code "

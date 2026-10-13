@@ -44,6 +44,16 @@ ENTRIES = [
     dict(service="email", username="user@example.com",
          password="fake-mail-pass-789", url="", notes="no totp here",
          totp_secret="", tags=[], favourite=False),
+    # Bound to a (fake) Android app: exercises the android_app
+    # binding's round trip through both clients. The cert is a
+    # fixed test value, not any real app's signing key.
+    dict(service="shopapp", username="shopper",
+         password="fake-shop-pass-000", url="https://shop.example",
+         notes="bound to a test android app", totp_secret="", tags=[],
+         favourite=False,
+         android_app={"package": "com.example.shop",
+                      "cert_sha256": "0123456789abcdef" * 4,
+                      "label": "Shop App"}),
 ]
 
 
@@ -72,6 +82,10 @@ def main():
         if e["service"] == "github":
             e["rotate_days"] = 90
         elif e["service"] == "email":
+            e["rotate_days"] = 0
+        elif e["service"] == "shopapp":
+            # The autofill fixture entry stays out of the rotation
+            # due-counts the e2e smoke test asserts on.
             e["rotate_days"] = 0
     app._persist()
     # Fixed-phrase recovery slot + Phase 3A backup recovery recipient,
@@ -122,8 +136,9 @@ def main():
         "phrase": PHRASE,
         "vault_id": app._vault_id,
         "entries": [
-            {k: e[k] for k in ("service", "username", "password", "url",
-                               "notes", "totp_secret", "tags", "favourite")}
+            {**{k: e[k] for k in ("service", "username", "password", "url",
+                                  "notes", "totp_secret", "tags", "favourite")},
+             "android_app": e.get("android_app")}
             for e in ENTRIES
         ],
         "totp": {
@@ -156,6 +171,7 @@ def main():
                 "github": {"rotate_days": 90, "state": "overdue"},
                 "bank": {"rotate_days": None, "state": "ok"},
                 "email": {"rotate_days": 0, "state": "off"},
+                "shopapp": {"rotate_days": 0, "state": "off"},
             },
         },
         "agent": {"id": "fixture-agent", "token": token,
