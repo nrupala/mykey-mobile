@@ -32,6 +32,16 @@ jobs:
           repository: nrupala/mykey
           path: mykey-py
 
+      - name: Help text matches the canonical desktop copy
+        # HELP.md / FAQ.md are canonical in the desktop repo and
+        # mirrored byte-for-byte in src/content/. Any drift —
+        # including a desktop-side edit that was not re-mirrored —
+        # fails the build, so the two apps can never show
+        # different help.
+        run: |
+          cmp mykey-py/HELP.md src/content/HELP.md
+          cmp mykey-py/FAQ.md src/content/FAQ.md
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24

@@ -21,6 +21,18 @@ is Vault v3 (desktop engine 2.2.0).
   or reads "date not recorded". Same semantics, file fields and
   fixture gate as the desktop engine.
 
+- **Built-in help, fully offline.** "How MyKey works" and
+  "Common questions" ship inside the app (no network, no web
+  view). The text is the canonical copy from the desktop repo,
+  mirrored byte-for-byte; the PWA CI fails if the copies drift.
+  Help is reachable from the locked screen — a locked-out user
+  is who needs the recovery answers — and from Settings.
+- **About screen.** App name and version, seller 2351485
+  ALBERTA INC., support address, the linked attribution line
+  with the Muse referral code, a licence summary, and a
+  changelog pointer. A marked slot waits for the licence / tip
+  block if the free-tier ruling lands.
+
 ## [1.2.0] — 2026-10-13
 
 The blob wave: backup packages round-trip through this client.

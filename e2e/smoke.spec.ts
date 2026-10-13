@@ -225,3 +225,17 @@ test("lock on hide: hidden tab locks the vault", async ({ page }) => {
   });
   await expect(page.getByRole("heading", { name: "Your vault is locked" })).toBeVisible();
 });
+test("help and about are reachable from the welcome screen", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Welcome to MyKey" })).toBeVisible();
+  await page.getByRole("button", { name: "Help and questions" }).click();
+  await expect(page.getByRole("heading", { name: "Help and questions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "How MyKey works" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Common questions" })).toBeVisible();
+  await expect(page.getByText("Can the company read my passwords?")).toBeVisible();
+  await page.getByRole("button", { name: "About MyKey" }).click();
+  await expect(page.getByRole("heading", { name: "About MyKey" })).toBeVisible();
+  await expect(page.getByText("Sold by 2351485 ALBERTA INC.")).toBeVisible();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Help and questions" })).toBeVisible();
+});

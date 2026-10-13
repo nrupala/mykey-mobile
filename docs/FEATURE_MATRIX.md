@@ -66,3 +66,11 @@ offered instead.
 | Device display defaults | Implemented | First run follows the device: OS light/dark (reacts live to OS changes), OS font scaling (all sizes relative; the Android shell sets no WebView text-zoom override, so the system font scale applies), reduced-motion honoured. Any skin choice overrides until "Use device settings" is picked again. |
 | Skins (themes) | Implemented | Settings → Appearance: Device (auto), Daylight, Midnight, Ocean, Forest, Dune, Chakra, High Contrast. Token-based — every colour comes from the active palette; picking applies instantly (the picker is its own live preview) and persists on-device. Every skin passes the WCAG AA contrast gate in CI (tests/themes.test.ts). Palette rationale: docs/DESIGN.md. |
 | Password strength meter | Implemented | Five segments in the theme's meter ramp plus a word (Very weak → Excellent) — never colour alone. The Chakra skin's ramp follows the seven-chakra spectrum. |
+
+## Help & About
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Built-in help ("How MyKey works") | Implemented | Ships inside the app bundle; fully offline. Canonical text lives in the desktop repo (HELP.md); this copy is byte-identical and the PWA CI fails on drift. |
+| Common questions (FAQ) | Implemented | Same canonical-text rule (FAQ.md). Reachable from the locked/welcome screen — before sign-in — and from Settings. |
+| About screen | Implemented | Version (from package.json), seller 2351485 ALBERTA INC., support info@aimlds.org, linked attribution with referral code 101EEK, licence summary, changelog pointer. Licence/tip block slot reserved (free-tier ruling pending — no purchase content yet). |
