@@ -12,9 +12,14 @@
 //
 // Copyright (c) 2026 2351485 ALBERTA INC.
 
-/** Local storage. The ONLY vault material ever stored is the
- * encrypted Vault v3 file bytes themselves (IndexedDB). No
- * plaintext, no keys, no passwords — and nothing in localStorage. */
+/** Local storage. Vault material stored here is the encrypted
+ * Vault v3 file bytes themselves (IndexedDB). No plaintext vault
+ * data, no passwords — and nothing in localStorage. The blob wave
+ * adds two identity items, both stated plainly: this device's
+ * MKDEVKEYS identity JSON and pairing-target key JSON (private keys
+ * in local app storage, the desktop's 0600-file discipline carried
+ * to the web sandbox — local storage protection, not an OS
+ * keystore claim). */
 
 const DB_NAME = "mykey-web";
 const STORE = "kv";
@@ -101,4 +106,25 @@ export const store = {
   getSyncDirHandle: () => idbGet<FileSystemDirectoryHandle>("syncDirHandle"),
   setSyncDirHandle: (h: FileSystemDirectoryHandle) => idbSet("syncDirHandle", h),
   clearSyncDirHandle: () => idbDelete("syncDirHandle"),
+  // Blob wave: this client's device identity (MKDEVKEYS JSON) and
+  // the pairing target this device's sync folder is tied to.
+  getDeviceIdentity: () => idbGet<string>("deviceIdentity"),
+  setDeviceIdentity: (json: string) => idbSet("deviceIdentity", json),
+  clearDeviceIdentity: () => idbDelete("deviceIdentity"),
+  getSyncTargetId: () => idbGet<string>("syncTargetId"),
+  setSyncTargetId: (id: string) => idbSet("syncTargetId", id),
+  clearSyncTargetId: () => idbDelete("syncTargetId"),
+  // Pairing-target key files (MKPAIRKEYS JSON) for targets set up
+  // on this device, keyed by target id.
+  getPairingTargetKeys: () => idbGet<Record<string, string>>("pairingTargetKeys"),
+  async setPairingTargetKeys(id: string, json: string): Promise<void> {
+    const all = (await idbGet<Record<string, string>>("pairingTargetKeys")) ?? {};
+    all[id] = json;
+    await idbSet("pairingTargetKeys", all);
+  },
+  async deletePairingTargetKeys(id: string): Promise<void> {
+    const all = (await idbGet<Record<string, string>>("pairingTargetKeys")) ?? {};
+    delete all[id];
+    await idbSet("pairingTargetKeys", all);
+  },
 };

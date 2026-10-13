@@ -72,7 +72,14 @@ export const MIN_MASTER_PASSWORD_LENGTH = 12;
 export const MIN_GENERATED_PASSWORD_LENGTH = 16;
 const VERIFIER_LABEL = "vault-verifier-v3";
 const METADATA_FIELDS = ["service", "username", "url", "tags", "favourite", "created", "updated"] as const;
-const ENTRY_FIELDS = ["service", "username", "password", "url", "notes", "totp_secret", "tags", "favourite"] as const;
+const ENTRY_FIELDS = ["service", "username", "password", "url", "notes", "totp_secret", "tags", "favourite", "rotate_days"] as const;
+
+/** Vault-wide default password rotation period in days, matching
+ * the Python engine (mykey.py DEFAULT_ROTATE_DAYS). The default
+ * itself is stored in the encrypted core ("settings"); per-entry
+ * rotation fields ride in the entry's secret blob, exactly as the
+ * Python engine stores them — never in metadata or a sidecar. */
+export const DEFAULT_ROTATE_DAYS = 180;
 
 export class WrongPasswordError extends Error {}
 export class VaultCorruptError extends Error {}
@@ -90,6 +97,12 @@ export interface VaultEntry {
   favourite: boolean;
   created: number;
   updated: number;
+  /** When the password was last set (epoch seconds), or null when
+   * no date is recorded (e.g. imported entries). */
+  password_set_at: number | null;
+  /** Per-entry rotation period in days: null = vault default,
+   * 0 = never rotate this entry. */
+  rotate_days: number | null;
 }
 
 export interface Slot {
@@ -132,6 +145,11 @@ function aad(kind: string, ident: string): Uint8Array {
   return utf8Encode(`${kind}:v3:${ident}`);
 }
 
+/** The sealed entry-ciphertext hash, exported for the test suite's
+ * file surgery (simulating files written by older clients), the
+ * same role mykey.py's _entry_hash plays in the Python tests. */
+export const computeEntryHash = entryHash;
+
 function entryHash(obj: RawEntryObject): string {
   const h = sha256.create();
   h.update(utf8Encode("entryhash:v3"));
@@ -144,6 +162,17 @@ function entryHash(obj: RawEntryObject): string {
     }
   }
   return [...h.digest()].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Normalize a rotation period: null (unset) or a whole number of
+ * days >= 0, where 0 means "never". Mirrors the Python engine's
+ * _validate_rotate_days — anything else is a caller bug. */
+export function validateRotateDays(value: number | null): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error("rotation period must be a whole number of days or unset");
+  }
+  return value;
 }
 
 function scopeCoversEntry(scopes: string[], entry: VaultEntry): boolean {
@@ -278,6 +307,11 @@ export class VaultSession {
         if (totpBytes === null) throw new VaultCorruptError(`entry ${eid} TOTP failed to decrypt`);
         totpSecret = JSON.parse(utf8Decode(totpBytes)).totp_secret ?? "";
       }
+      // Rotation fields live in the secret blob. Files written
+      // before the feature have neither: the set date falls back
+      // to the entry's creation time when the record carries one,
+      // else null ("date not recorded") — the Python engine's rule.
+      const createdRaw = typeof meta.created === "number" ? meta.created : null;
       session.entriesList.push({
         id: eid,
         service: meta.service ?? "",
@@ -290,6 +324,12 @@ export class VaultSession {
         password: secret.password ?? "",
         notes: secret.notes ?? "",
         totp_secret: totpSecret,
+        password_set_at:
+          typeof secret.password_set_at === "number"
+            ? secret.password_set_at
+            : createdRaw,
+        rotate_days:
+          typeof secret.rotate_days === "number" ? secret.rotate_days : null,
       });
     }
     return session;
@@ -373,7 +413,9 @@ export class VaultSession {
       retired_pending_keys: {},
       audit_mac_since: 0,
       devices: {},
+      pairings: {},
       backup_recovery_pub: null,
+      settings: { default_rotate_days: DEFAULT_ROTATE_DAYS },
     };
     const session = new VaultSession({
       vk,
@@ -420,7 +462,12 @@ export class VaultSession {
         meta: await aesGcmEncrypt(this.kmeta, utf8Encode(JSON.stringify(meta)), aad("meta", entry.id)),
         secret: await aesGcmEncrypt(
           dek.pw,
-          utf8Encode(JSON.stringify({ password: entry.password, notes: entry.notes })),
+          utf8Encode(JSON.stringify({
+            password: entry.password,
+            notes: entry.notes,
+            password_set_at: entry.password_set_at,
+            rotate_days: entry.rotate_days,
+          })),
           aad("secret", entry.id),
         ),
         totp: entry.totp_secret
@@ -537,7 +584,11 @@ export class VaultSession {
     return { ...entry, tags: [...entry.tags] };
   }
 
-  async addEntry(input: Omit<VaultEntry, "id" | "created" | "updated">): Promise<VaultEntry> {
+  async addEntry(
+    input: Omit<VaultEntry, "id" | "created" | "updated" | "password_set_at" | "rotate_days"> & {
+      rotate_days?: number | null;
+    },
+  ): Promise<VaultEntry> {
     if (!input.service) throw new Error("entry service must be non-empty");
     if (
       this.entriesList.some(
@@ -546,6 +597,7 @@ export class VaultSession {
     ) {
       throw new Error(`entry already exists: ${input.service} (${input.username})`);
     }
+    const rotateDays = validateRotateDays(input.rotate_days ?? null);
     const ts = nowSeconds();
     const entry: VaultEntry = {
       ...input,
@@ -553,6 +605,9 @@ export class VaultSession {
       id: uuidHex(),
       created: ts,
       updated: ts,
+      // A new entry's age clock starts now.
+      password_set_at: ts,
+      rotate_days: rotateDays,
     };
     this.deks.set(entry.id, {
       pw: randomBytes(32),
@@ -566,13 +621,23 @@ export class VaultSession {
   async updateEntry(id: string, fields: Partial<Omit<VaultEntry, "id" | "created">>): Promise<VaultEntry> {
     const entry = this.entriesList.find((e) => e.id === id);
     if (!entry) throw new Error(`no entry: ${id}`);
+    if ("rotate_days" in fields) {
+      fields = { ...fields, rotate_days: validateRotateDays(fields.rotate_days ?? null) };
+    }
+    const oldPassword = entry.password;
+    const ts = nowSeconds();
     for (const f of ENTRY_FIELDS) {
       if (f in fields) {
         const v = (fields as Record<string, unknown>)[f];
         (entry as unknown as Record<string, unknown>)[f] = f === "tags" ? [...(v as string[])] : v;
       }
     }
-    entry.updated = nowSeconds();
+    // The age clock resets only when the password itself changes —
+    // editing any other field never touches it (Python parity).
+    if ("password" in fields && fields.password !== oldPassword) {
+      entry.password_set_at = ts;
+    }
+    entry.updated = ts;
     const dek = this.deks.get(id)!;
     if (entry.totp_secret && dek.totp === null) dek.totp = randomBytes(32);
     if (!entry.totp_secret) dek.totp = null;
@@ -586,6 +651,42 @@ export class VaultSession {
     this.deks.delete(id);
     delete (this.core.origins as Record<string, string>)[id];
     return { ...removed! };
+  }
+
+  // ---------------------------------------------------------------
+  // Password age + rotation (settings live in the encrypted core)
+  // ---------------------------------------------------------------
+
+  /** The vault-wide default rotation period in days: null/0 = no
+   * rotation by default. Cores written before the feature have no
+   * settings block — the shipped default applies. */
+  vaultSettings(): { default_rotate_days: number | null } {
+    const raw = (this.core.settings ?? {}) as Record<string, unknown>;
+    if (!("default_rotate_days" in raw)) {
+      return { default_rotate_days: DEFAULT_ROTATE_DAYS };
+    }
+    const value = raw.default_rotate_days;
+    return { default_rotate_days: typeof value === "number" ? value : null };
+  }
+
+  /** Set the vault-wide default rotation period (days; null or 0
+   * = no rotation by default). Per-entry overrides still win. The
+   * caller persists afterwards. */
+  setDefaultRotateDays(value: number | null): void {
+    const days = validateRotateDays(value);
+    this.core.settings = { ...((this.core.settings ?? {}) as object), default_rotate_days: days };
+  }
+
+  /** Record that this entry's password was changed today — for
+   * passwords rotated on the website itself. Only the clock moves;
+   * the stored value is untouched. */
+  async markPasswordChanged(id: string, at?: number): Promise<VaultEntry> {
+    const entry = this.entriesList.find((e) => e.id === id);
+    if (!entry) throw new Error(`no entry: ${id}`);
+    const ts = at ?? nowSeconds();
+    entry.password_set_at = ts;
+    entry.updated = ts;
+    return { ...entry };
   }
 
   /** Bulk import — mirrors the desktop engine's import_entries /
@@ -616,6 +717,10 @@ export class VaultSession {
         id: uuidHex(),
         created: ts,
         updated: ts,
+        // Imported records carry no set date in their source —
+        // honestly "not recorded", never the import date.
+        password_set_at: null,
+        rotate_days: null,
       };
       this.deks.set(entry.id, {
         pw: randomBytes(32),
@@ -637,6 +742,10 @@ export class VaultSession {
         );
         if (existing) {
           await this.updateEntry(existing.id, { ...rec });
+          // Import overwrite: the replacement password's age is
+          // unknown — "not recorded", never the old entry's date
+          // and never a pretend "set today" (Python parity).
+          existing.password_set_at = null;
           stats.overwritten++;
         } else {
           stats.skippedConflicts++;
@@ -649,6 +758,44 @@ export class VaultSession {
       }
     }
     return stats;
+  }
+
+  // ---------------------------------------------------------------
+  // Device + pairing registries (blob wave). Records live in the
+  // encrypted core, mirroring the desktop registries; mutations
+  // mark the vault dirty so the app layer persists them. The
+  // session is the human's unlocked session by construction.
+  // ---------------------------------------------------------------
+
+  /** Deep copy of the device registry (core "devices"). */
+  devicesRegistry(): Record<string, any> {
+    return JSON.parse(JSON.stringify(this.core.devices ?? {}));
+  }
+
+  /** Deep copy of the pairing registry (core "pairings"). Vaults
+   *  created before the blob wave have no "pairings" field — it
+   *  reads as empty and is added on the first enrollment. */
+  pairingsRegistry(): Record<string, any> {
+    return JSON.parse(JSON.stringify(this.core.pairings ?? {}));
+  }
+
+  /** The vault's backup recovery recipient public key, raw bytes,
+   *  or null when no recovery phrase is set up. */
+  backupRecoveryPub(): Uint8Array | null {
+    const raw = this.core.backup_recovery_pub;
+    return typeof raw === "string" && raw ? b64decode(raw) : null;
+  }
+
+  putDeviceRecord(record: Record<string, any>): void {
+    if (!this.core.devices) this.core.devices = {};
+    this.core.devices[record.device_id] = record;
+    this.markDirty();
+  }
+
+  putPairingRecord(record: Record<string, any>): void {
+    if (!this.core.pairings) this.core.pairings = {};
+    this.core.pairings[record.target_id] = record;
+    this.markDirty();
   }
 
   // ---------------------------------------------------------------

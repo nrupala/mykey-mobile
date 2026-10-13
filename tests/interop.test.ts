@@ -13,10 +13,19 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   BackupRefusedError,
+  exportPackage,
+  importPackageWithPairing,
   importPackageWithRecovery,
   inspectPackage,
 } from "../src/vault/backup.js";
-import { randomBytes } from "../src/vault/encoding.js";
+import {
+  DeviceIdentity,
+  PairingTargetIdentity,
+  verifyDeviceCard,
+} from "../src/vault/device.js";
+import { verifyPairingPayload, type PairingRecord } from "../src/vault/pairings.js";
+import { b64decode, b64encode, randomBytes } from "../src/vault/encoding.js";
+import { rotationStatus } from "../src/vault/rotation.js";
 import {
   VaultCorruptError,
   VaultSession,
@@ -30,6 +39,8 @@ const OUT = join(FIX, "out");
 
 const vaultBytes = new Uint8Array(readFileSync(join(FIX, "fixture.mykey")));
 const pkgBytes = new Uint8Array(readFileSync(join(FIX, "fixture.mykeybak")));
+const legacyPkgBytes = new Uint8Array(readFileSync(join(FIX, "fixture-v1.mykeybak")));
+const nopairPkgBytes = new Uint8Array(readFileSync(join(FIX, "fixture-nopair.mykeybak")));
 const expected = JSON.parse(readFileSync(join(FIX, "expected.json"), "utf8"));
 
 function entryView(e: {
@@ -102,26 +113,114 @@ describe("Python-fixture vault opens in the TS client", () => {
   });
 });
 
+describe("password rotation fields in the Python fixture", () => {
+  it("reads the exact set dates, overrides and vault default Python wrote", async () => {
+    const s = await VaultSession.openWithPassword(vaultBytes, expected.password);
+    const rot = expected.rotation;
+    expect(s.vaultSettings().default_rotate_days).toBe(rot.default_rotate_days);
+    for (const entry of s.listEntries()) {
+      const want = rot.entries[entry.service];
+      expect(entry.password_set_at).toBe(rot.password_set_at);
+      expect(entry.rotate_days).toBe(want.rotate_days);
+      const status = rotationStatus(entry, rot.default_rotate_days, rot.status_now);
+      expect(status.state).toBe(want.state);
+    }
+  });
+});
+
 describe("MKBAK recovery import (Python-generated package)", () => {
   it("inspects the package and verifies its signature", () => {
     const info = inspectPackage(pkgBytes);
     expect(info.vaultId).toBe(expected.vault_id);
+    expect(info.version).toBe(2);
+    expect(info.legacy).toBe(false);
+    expect(info.recoveryTwoFactor).toBe(true);
     expect(info.sourceFingerprint).toBe(expected.backup.source_fingerprint);
     expect(info.fingerprintMatchesHeader).toBe(true);
     expect(info.signatureValid).toBe(true);
     expect(info.recipients.map((r) => r.type)).toContain("recovery");
+    expect(info.recipients.map((r) => r.type)).toContain("pairing");
   });
 
-  it("imports with the phrase + independent fingerprint and opens the vault", async () => {
+  it("imports with phrase + backup code (two-factor) and opens the vault", async () => {
     const result = await importPackageWithRecovery(
       pkgBytes,
       expected.phrase,
       expected.backup.source_fingerprint,
+      expected.backup.backup_code,
     );
     expect(result.vaultId).toBe(expected.vault_id);
+    expect(result.via).toBe("recovery");
+    expect(result.packageVersion).toBe(2);
+    expect(result.legacy).toBe(false);
     const s = await VaultSession.openWithPassword(result.vaultBytes, expected.password);
     const views = s.listEntries().map(entryView).sort((a, b) => a.service.localeCompare(b.service));
     expect(views).toEqual(expectedViews());
+  });
+
+  it("refuses phrase-only on a v2 package (two-factor rule)", async () => {
+    await expect(
+      importPackageWithRecovery(pkgBytes, expected.phrase, expected.backup.source_fingerprint),
+    ).rejects.toThrow(/two-factor/);
+  });
+
+  it("refuses a wrong backup code, fails closed", async () => {
+    const wrong = "abandon abandon abandon abandon abandon abandon abandon abandon";
+    await expect(
+      importPackageWithRecovery(
+        pkgBytes, expected.phrase, expected.backup.source_fingerprint, wrong,
+      ),
+    ).rejects.toBeInstanceOf(BackupRefusedError);
+  });
+
+  it("refuses a malformed backup code plainly", async () => {
+    await expect(
+      importPackageWithRecovery(
+        pkgBytes, expected.phrase, expected.backup.source_fingerprint, "not a real code",
+      ),
+    ).rejects.toThrow(/backup code/);
+  });
+
+  it("accepts the code typed with odd case and spacing", async () => {
+    const shouted = "  " + expected.backup.backup_code.toUpperCase().split(" ").join("   ") + " ";
+    const result = await importPackageWithRecovery(
+      pkgBytes, expected.phrase, expected.backup.source_fingerprint, shouted,
+    );
+    expect(result.vaultId).toBe(expected.vault_id);
+  });
+
+  it("imports the legacy v1 package with the phrase alone, labelled legacy", async () => {
+    const info = inspectPackage(legacyPkgBytes);
+    expect(info.version).toBe(1);
+    expect(info.legacy).toBe(true);
+    expect(info.recoveryTwoFactor).toBe(false);
+    const result = await importPackageWithRecovery(
+      legacyPkgBytes,
+      expected.phrase,
+      expected.backup.source_fingerprint,
+    );
+    expect(result.legacy).toBe(true);
+    const s = await VaultSession.openWithPassword(result.vaultBytes, expected.password);
+    expect(s.listEntries()).toHaveLength(3);
+  });
+
+  it("imports via the pairing key on the pre-revocation package", async () => {
+    const priv = b64decode(expected.pairing.priv_b64);
+    const result = await importPackageWithPairing(
+      pkgBytes, priv, expected.backup.source_fingerprint,
+    );
+    expect(result.via).toBe(`pairing:${expected.pairing.target_id}`);
+    const s = await VaultSession.openWithPassword(result.vaultBytes, expected.password);
+    expect(s.listEntries()).toHaveLength(3);
+  });
+
+  it("the post-revocation package has NO pairing slot", async () => {
+    const info = inspectPackage(nopairPkgBytes);
+    expect(info.recipients.map((r) => r.type)).not.toContain("pairing");
+    const priv = b64decode(expected.pairing.priv_b64);
+    await expect(
+      importPackageWithPairing(nopairPkgBytes, priv, expected.backup.source_fingerprint),
+    ).rejects.toBeInstanceOf(BackupRefusedError);
   });
 
   it("refuses when the independent fingerprint does not match", async () => {
@@ -130,6 +229,7 @@ describe("MKBAK recovery import (Python-generated package)", () => {
         pkgBytes,
         expected.phrase,
         "0000:0000:0000:0000:0000:0000:0000:0000",
+        expected.backup.backup_code,
       ),
     ).rejects.toBeInstanceOf(BackupRefusedError);
   });
@@ -142,7 +242,104 @@ describe("MKBAK recovery import (Python-generated package)", () => {
         new Uint8Array(Buffer.from(JSON.stringify(tampered))),
         expected.phrase,
         expected.backup.source_fingerprint,
+        expected.backup.backup_code,
       ),
+    ).rejects.toBeInstanceOf(BackupRefusedError);
+  });
+});
+
+describe("TS-exported MKBAK v2 package (for the Python cross-check)", () => {
+  it("exports a v2 package Python must open three ways; refuses the failures", async () => {
+    mkdirSync(OUT, { recursive: true });
+    const s = await VaultSession.openWithPassword(vaultBytes, expected.password);
+
+    // This client becomes an enrolled device of the fixture vault.
+    const identity = DeviceIdentity.generate("ts-fixture-device");
+    const record = verifyDeviceCard(identity.card() as unknown as Record<string, unknown>);
+    s.putDeviceRecord({ ...record, enrolled_at: 1700000000, revoked_at: null });
+
+    // A pairing target with the export scope is enrolled too.
+    const target = PairingTargetIdentity.generate("export", "ts-fixture-target");
+    const base = verifyPairingPayload(target.payload() as unknown as Record<string, unknown>);
+    const pairingRecord: PairingRecord = {
+      ...base,
+      scopes: ["export", "pull", "push"],
+      enrolled_at: 1700000000,
+      expires_at: null,
+      enabled: true,
+      revoked_at: null,
+    };
+    s.putPairingRecord(pairingRecord as unknown as Record<string, any>);
+    // The vault carrying both registries, for the Python side to read.
+    writeFileSync(join(OUT, "paired.mykey"), await s.serialize());
+
+    const backupRecoveryPub = s.backupRecoveryPub();
+    expect(backupRecoveryPub).not.toBeNull();
+    const out = await exportPackage({
+      vaultBytes: await s.serialize(),
+      vaultId: s.vaultId,
+      source: identity,
+      devices: s.devicesRegistry(),
+      pairings: s.pairingsRegistry() as Record<string, PairingRecord>,
+      backupRecoveryPub: backupRecoveryPub!,
+    });
+    expect(out.recipientLabels).toContain(`device:${identity.deviceId}`);
+    expect(out.recipientLabels).toContain(`paired:${target.targetId}`);
+    expect(out.recipientLabels).toContain("recovery");
+    expect(out.backupCode.split(" ")).toHaveLength(8);
+    // The backup code must NOT appear anywhere in the package bytes.
+    const pkgText = Buffer.from(out.packageBytes).toString("utf8");
+    expect(pkgText.includes(out.backupCode)).toBe(false);
+    expect(pkgText.includes(out.backupCode.split(" ").slice(0, 4).join(" "))).toBe(false);
+
+    writeFileSync(join(OUT, "ts-export.mykeybak"), out.packageBytes);
+    writeFileSync(join(OUT, "ts-device-keys.json"), identity.serialize());
+    writeFileSync(
+      join(OUT, "ts-export.json"),
+      JSON.stringify(
+        {
+          backup_code: out.backupCode,
+          source_fingerprint: identity.fingerprint,
+          pairing_target_id: target.targetId,
+          pairing_fingerprint: target.fingerprint,
+          pairing_priv_b64: b64encode(target.xPrivateRaw),
+          vault_id: s.vaultId,
+        },
+        null,
+        2,
+      ),
+    );
+
+    // TS-side round trips against the TS-made package.
+    const viaRecovery = await importPackageWithRecovery(
+      out.packageBytes, expected.phrase, identity.fingerprint, out.backupCode,
+    );
+    expect(viaRecovery.via).toBe("recovery");
+    await expect(
+      importPackageWithRecovery(out.packageBytes, expected.phrase, identity.fingerprint),
+    ).rejects.toThrow(/two-factor/);
+    const viaPairing = await importPackageWithPairing(
+      out.packageBytes, target.xPrivateRaw, identity.fingerprint,
+    );
+    expect(viaPairing.via).toBe(`pairing:${target.targetId}`);
+    const opened = await VaultSession.openWithPassword(viaRecovery.vaultBytes, expected.password);
+    expect(opened.listEntries()).toHaveLength(3);
+    // The pairing registry survived the round trip in the core.
+    expect(Object.keys(opened.pairingsRegistry())).toContain(target.targetId);
+  });
+
+  it("an unenrolled device cannot export (mirrors the desktop)", async () => {
+    const s = await VaultSession.openWithPassword(vaultBytes, expected.password);
+    const stranger = DeviceIdentity.generate("stranger");
+    await expect(
+      exportPackage({
+        vaultBytes: await s.serialize(),
+        vaultId: s.vaultId,
+        source: stranger,
+        devices: s.devicesRegistry(),
+        pairings: s.pairingsRegistry() as Record<string, PairingRecord>,
+        backupRecoveryPub: s.backupRecoveryPub()!,
+      }),
     ).rejects.toBeInstanceOf(BackupRefusedError);
   });
 });

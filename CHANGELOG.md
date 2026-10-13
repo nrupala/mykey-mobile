@@ -2,25 +2,44 @@
 
 All notable changes to the MyKey web client + Android app.
 Versions follow the client's own line; the vault format it speaks
-is Vault v3 (desktop engine 2.1.0).
+is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
-Help + FAQ + About wave (desktop repo: MyKey Help wave PR).
+- Built-in help, fully offline: "How MyKey works" and "Common
+  questions" ship inside the app (no network, no web view). The
+  text is the canonical copy from the desktop repo, mirrored
+  byte-for-byte; the PWA CI fails if the copies drift. Help is
+  reachable from the locked screen — a locked-out user is who
+  needs the recovery answers — and from Settings.
+- About screen: app name and version, seller 2351485 ALBERTA
+  INC., support address, the linked attribution line with the
+  Muse referral code, a licence summary, and a changelog
+  pointer. A marked slot waits for the licence / tip block if
+  the free-tier ruling lands.
 
-- **Built-in help, fully offline.** "How MyKey works" and
-  "Common questions" render in-app from text bundled with the
-  client — no web view, no network. The canonical text lives in
-  the desktop repo (HELP.md / FAQ.md); this repo mirrors it
-  byte-for-byte in `src/content/`, and CI now fails if the two
-  drift apart.
-- **Help is reachable while locked out.** A "Help and questions"
-  button sits on the locked and welcome screens, not just in
-  Settings — a forgotten password is when the FAQ matters most.
-- **About screen.** Settings → About MyKey: name, version,
-  seller, support address, the linked attribution line with the
-  Muse referral code, a licence summary pointing at TERMS, and
-  a changelog pointer.
+## [1.2.0] — 2026-10-13
+
+The blob wave: backup packages round-trip through this client.
+
+- MKBAK v2 export and import, byte-compatible with the desktop
+  engine (2.2.0) — fixtures regenerate from the Python repo and
+  the Python cross-check opens this client's packages, so the
+  formats cannot drift.
+- Two-factor recovery: newer backup packages open outside the app
+  only with the recovery phrase AND an 8-word backup code
+  together. The code is generated at export, shown once, and
+  never stored. Legacy v1 packages still restore phrase-only and
+  are labelled LEGACY.
+- This client holds its own device identity, enrolls in the
+  vault, and restores its own packages directly (no phrase, no
+  code).
+- Key-value pairing: pair devices, cloud folders, and backup
+  targets by payload + fingerprint confirmation; the registry
+  lives in the encrypted vault. Exports wrap only to active
+  pairings with the export scope; a sync folder tied to a pairing
+  saves/loads only while that pairing is active with the matching
+  permission. Revoke/disable/expire from the pairing screen.
 
 ## [1.1.0] — 2026-10-13
 
