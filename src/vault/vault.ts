@@ -65,6 +65,16 @@ import {
   type ImportRecord,
   type ImportStats,
 } from "./csvio.js";
+import {
+  FREE_ENTRY_LIMIT,
+  FREE_MAX_CONNECTIONS,
+  LICENCE_PUBLIC_KEY_B64,
+  LicenceRequiredError,
+  normalizeToken,
+  statusLine as licenceStatusLine,
+  verifyToken,
+  type LicencePayload,
+} from "./licence.js";
 
 export const FORMAT_TOKEN = "MKVLT";
 export const FORMAT_VERSION = 3;
@@ -219,6 +229,14 @@ export class VaultSession {
    * verify (the audit log sidecar is a desktop/sync artefact). The
    * seal is preserved verbatim on save; see docs/FEATURE_MATRIX.md. */
   readonly auditSealed: boolean;
+  /** Licence authority key this session verifies against. Defaults
+   * to the production key; tests substitute a test authority,
+   * mirroring the Python engine's seam. */
+  licencePublicKeyB64: string = LICENCE_PUBLIC_KEY_B64;
+  /** The verified payload from the device-local licence slot, set
+   * by the app layer when that slot held a valid key (used when
+   * the vault itself carries no key). */
+  private deviceLicence: LicencePayload | null = null;
 
   private constructor(init: {
     vk: Uint8Array;
@@ -598,6 +616,17 @@ export class VaultSession {
       throw new Error(`entry already exists: ${input.service} (${input.username})`);
     }
     const rotateDays = validateRotateDays(input.rotate_days ?? null);
+    // Licensing wave: the free tier caps the entry COUNT (never
+    // any security feature). Edits are unaffected — only creating
+    // a new entry checks for a free slot.
+    if (this.entriesList.length >= this.entryLimit()) {
+      throw new LicenceRequiredError(
+        `Your vault already holds the free version's ${FREE_ENTRY_LIMIT} passwords. ` +
+          "Adding more needs a licence — Settings → Enter a licence key. " +
+          "Everything already saved keeps working, and deleting a password frees a place.",
+      );
+    }
+
     const ts = nowSeconds();
     const entry: VaultEntry = {
       ...input,
@@ -689,6 +718,95 @@ export class VaultSession {
     return { ...entry };
   }
 
+  // ---------------------------------------------------------------
+  // Licensing (mirror of the desktop engine's licensing.py)
+  // ---------------------------------------------------------------
+
+  setDeviceLicence(payload: LicencePayload | null): void {
+    this.deviceLicence = payload;
+  }
+
+  private settings(): Record<string, any> {
+    const s = (this.core as Record<string, any>).settings;
+    return typeof s === "object" && s !== null ? s : {};
+  }
+
+  /** The verified licence stored INSIDE this vault, if any. A
+   * stored token that no longer verifies is treated as no licence
+   * (fail closed), never as an error at open time. */
+  licencePayload(): LicencePayload | null {
+    const token = this.licenceKey();
+    if (!token) return null;
+    try {
+      return verifyToken(token, this.licencePublicKeyB64);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Licensed via the vault's own key, or via the device slot the
+   * app layer verified (either copy alone suffices). */
+  isLicensed(): boolean {
+    return this.deviceLicence !== null || this.licencePayload() !== null;
+  }
+
+  entryLimit(): number {
+    return this.isLicensed() ? Number.POSITIVE_INFINITY : FREE_ENTRY_LIMIT;
+  }
+
+  /** The raw licence token stored in the vault ("" when none). */
+  licenceKey(): string {
+    const raw = this.settings().licence_key;
+    return typeof raw === "string" ? raw : "";
+  }
+
+  /** Verify + store a licence key in the vault's encrypted
+   * settings (the caller persists). Throws LicenceInvalidError
+   * with a plain message when the key doesn't check out, and
+   * leaves any existing key untouched in that case. */
+  setLicenceKey(tokenText: string): LicencePayload {
+    const payload = verifyToken(tokenText, this.licencePublicKeyB64);
+    const settings = { ...this.settings(), licence_key: normalizeToken(tokenText) };
+    (this.core as Record<string, any>).settings = settings;
+    return payload;
+  }
+
+  /** Connections in use on THIS vault: active devices + agents +
+   * paired browsers (the extension seam). Blob/export pairing
+   * targets are destinations, never connections. */
+  connectionCount(): number {
+    const devices = (this.core.devices ?? {}) as Record<string, any>;
+    const activeDevices = Object.values(devices).filter(
+      (d) => d && typeof d === "object" && !d.revoked_at,
+    ).length;
+    const agents = Object.keys((this.core.agents ?? {}) as Record<string, any>).length;
+    return activeDevices + agents + this.browserPairingCount();
+  }
+
+  /** Paired browsers live in the vault settings; the browser
+   * extension client registers pairings there (the seam the
+   * desktop engine exposes as register_browser_pairing). */
+  browserPairingCount(): number {
+    const list = this.settings().browser_pairings;
+    return Array.isArray(list) ? list.length : 0;
+  }
+
+  connectionLimit(): number {
+    const payload = this.licencePayload() ?? this.deviceLicence;
+    return payload ? payload.max_connections : FREE_MAX_CONNECTIONS;
+  }
+
+  /** Plain-words licence state for Settings / About. */
+  licenceStatusLine(): string {
+    return licenceStatusLine({
+      licensed: this.isLicensed(),
+      entries: this.entriesList.length,
+      connections: this.connectionCount(),
+      connectionLimit: this.connectionLimit(),
+    });
+  }
+
+
   /** Bulk import — mirrors the desktop engine's import_entries /
    * resolve_import exactly: records key on (service, username),
    * case-insensitive; same password is a duplicate (skipped);
@@ -708,7 +826,14 @@ export class VaultSession {
       overwritten: 0,
       keptBoth: 0,
       skippedConflicts: 0,
+      heldBack: 0,
     };
+    // Licensing wave: an unlicensed vault imports only up to the
+    // free entry limit. New entries beyond the allowance are held
+    // back and counted, so the caller can report exactly how many
+    // and why (enter a licence, import the same file again — the
+    // ones already in are skipped as duplicates).
+    let allowance = this.entryLimit() - this.entriesList.length;
     const register = (rec: ImportRecord): void => {
       const ts = nowSeconds();
       const entry: VaultEntry = {
@@ -730,6 +855,11 @@ export class VaultSession {
       this.entriesList.push(entry);
     };
     for (const rec of fresh) {
+      if (allowance <= 0) {
+        stats.heldBack++;
+        continue;
+      }
+      allowance--;
       register(rec);
       stats.added++;
     }
@@ -751,8 +881,13 @@ export class VaultSession {
           stats.skippedConflicts++;
         }
       } else if (onConflict === "keep_both") {
-        register(rec);
-        stats.keptBoth++;
+        if (allowance <= 0) {
+          stats.heldBack++;
+        } else {
+          allowance--;
+          register(rec);
+          stats.keptBoth++;
+        }
       } else {
         stats.skippedConflicts++;
       }

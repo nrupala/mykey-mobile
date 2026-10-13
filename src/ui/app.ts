@@ -107,6 +107,8 @@ import {
   clampClipboardClearSeconds,
   clipboardGuard,
 } from "../platform/clipboard.js";
+import { verifyToken } from "../vault/licence.js";
+import { buyLicence, tipJar } from "../platform/purchase.js";
 
 // ------------------------------------------------------------------
 // Tiny DOM helpers
@@ -382,7 +384,9 @@ function renderAbout(back: () => void): void {
   );
   card.append(attribution);
   card.append(el("p", {}, `Licence: ${info.licenceSummary} ${info.termsPointer}`));
-  for (const line of licenceSlotLines()) card.append(el("p", {}, line));
+  for (const line of licenceSlotLines(state.session?.licenceStatusLine())) {
+    card.append(el("p", {}, line));
+  }
   card.append(el("p", { class: "hint" }, info.whatsNewPointer));
   root.append(card);
   root.append(button("Back", back, "primary"));
@@ -536,6 +540,7 @@ function renderCreate(): void {
     try {
       const session = await VaultSession.createNew(pw.value);
       state.session = session;
+      await applyLicenceState(session);
       pw.value = "";
       pw2.value = "";
       renderPhraseSetup(session, true);
@@ -1183,8 +1188,33 @@ async function renderPairings(): Promise<void> {
 // Unlocked screens
 // ------------------------------------------------------------------
 
+/** Licensing wave: apply the device-local licence slot to a fresh
+ * session, and mirror a licence stored inside the vault back into
+ * the device slot (so a NEW vault created here starts licensed).
+ * Either copy of the key alone suffices. Storage trouble must
+ * never block opening a vault, so everything here is best-effort. */
+async function applyLicenceState(session: VaultSession): Promise<void> {
+  try {
+    const deviceToken = await store.getLicenceKey();
+    if (deviceToken) {
+      try {
+        session.setDeviceLicence(
+          verifyToken(deviceToken, session.licencePublicKeyB64),
+        );
+      } catch {
+        /* a stored key that no longer verifies is simply ignored */
+      }
+    }
+    const vaultToken = session.licenceKey();
+    if (vaultToken) await store.setLicenceKey(vaultToken);
+  } catch {
+    /* device slot unavailable — the vault still opens normally */
+  }
+}
+
 async function enterVault(session: VaultSession): Promise<void> {
   state.session = session;
+  await applyLicenceState(session);
   if (session.needsPersist()) await persist();
   renderUnlocked();
 }
@@ -1563,11 +1593,67 @@ function renderEditor(entry: VaultEntry | null, backTo?: string): void {
 // Settings
 // ------------------------------------------------------------------
 
+function licenceBlock(status: HTMLElement): HTMLElement {
+  const session = state.session!;
+  const box = el("div", { class: "licence-block" });
+  box.append(el("p", { class: "status" }, session.licenceStatusLine()));
+  const row = el("div", { class: "action-stack" });
+  row.append(button("Enter a licence key", () => renderLicenceKey()));
+  if (!session.isLicensed()) {
+    row.append(button("Buy a licence", () => buyLicence(status)));
+  }
+  row.append(button("Tip jar", () => tipJar(status)));
+  box.append(row);
+  return box;
+}
+
+function renderLicenceKey(): void {
+  const session = state.session!;
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Enter a licence key"));
+  root.append(
+    el("p", { class: "lede" },
+      "Paste the licence key from your purchase email. It is checked on this device only — nothing is sent anywhere, and it works with no connection at all."),
+  );
+  const error = el("p", { class: "alert alert-error hidden", role: "alert" });
+  const done = el("p", { class: "alert alert-info hidden", role: "status" });
+  const area = el("textarea", {
+    class: "text-input", rows: "4", "aria-label": "Licence key",
+    placeholder: "MKLIC1.…",
+  }) as HTMLTextAreaElement;
+  const form = el("div", { class: "form" });
+  form.append(field("Licence key", area), error, done);
+  form.append(
+    button("Save my licence key", async () => {
+      error.classList.add("hidden");
+      done.classList.add("hidden");
+      try {
+        const payload = session.setLicenceKey(area.value);
+        await store.setLicenceKey(session.licenceKey());
+        await persist();
+        done.textContent =
+          `Licence active — thank you. Licensed to ${payload.licensee}: ` +
+          `unlimited passwords, ${payload.max_connections} connections. ` +
+          "The key is saved inside this vault (it travels with it) and on this device.";
+        done.classList.remove("hidden");
+      } catch (err) {
+        error.textContent = errorText(err);
+        error.classList.remove("hidden");
+      }
+    }, "primary"),
+    button("Back", () => renderUnlocked()),
+  );
+  root.append(form);
+  render(root);
+  armAutoLock();
+}
+
 function settingsPanel(): HTMLElement {
   const session = state.session!;
   const panel = el("section", { class: "card settings", "aria-label": "Settings" });
   panel.append(el("h3", {}, "Settings"));
   const status = el("p", { class: "status", "aria-live": "polite" });
+  panel.append(licenceBlock(status));
 
   // Auto-lock
   const lockSelect = el("select", { class: "text-input" }) as HTMLSelectElement;
@@ -1985,6 +2071,9 @@ function renderImportCsv(): void {
       if (stats.keptBoth) parts.push(`Kept both copies of ${stats.keptBoth}.`);
       if (stats.skippedConflicts) parts.push(`Left ${stats.skippedConflicts} unchanged, as you chose.`);
       if (stats.duplicates) parts.push(`Skipped ${stats.duplicates} that were already here.`);
+      if (stats.heldBack) parts.push(
+        `${stats.heldBack} password${stats.heldBack === 1 ? " was" : "s were"} NOT imported: the free version holds up to 50. ` +
+        "Enter a licence key in Settings and import this same file again to bring them in.");
       work.replaceChildren(
         el("div", { class: "card" },
           el("h3", {}, "Import finished"),

@@ -254,6 +254,30 @@ def ts_paired_registry():
 check("python reads the TS-enrolled pairing registry from the vault core",
       ts_paired_registry)
 
+
+def ts_licensed_vault():
+    # Licensing wave: the TS-written licensed vault (written by
+    # tests/licence.test.ts) opens in Python with the licence
+    # intact — the vault-carried key travels across clients.
+    p = FIX / "ts-licensed.mykey"
+    if not p.exists():
+        print("skip ts-licensed (fixture not written)")
+        return
+    try:
+        import licensing
+    except ImportError:
+        print("skip ts-licensed (desktop licensing module absent)")
+        return
+    v = open_py(stage("ts-licensed.mykey", p.read_bytes()),
+                password="cross-client fixture 1")
+    v.licence_public_key_b64 = "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="
+    assert licensing.is_licensed(v), "TS licensed vault not licensed in Python"
+    assert len(v.list_entries()) >= 1
+
+
+check("TS licensed vault opens licensed in Python", ts_licensed_vault)
+
+
 if failures:
     print(f"\n{len(failures)} cross-check(s) FAILED")
     sys.exit(1)

@@ -25,6 +25,13 @@ export const BRAND = {
   appId: "com.usemykey.mykey",
   vendor: "2351485 ALBERTA INC.",
   attribution: "Owned by Nrupal Akolkar · Built with Muse by Meta",
+  /** Licence purchase + tip destinations — configuration, not a
+   * checkout: the product site behind them is a separate piece,
+   * and the app only ever links to these constants. The Android
+   * build never opens licenceBuyUrl for the digital unlock
+   * (Google Play policy) — see src/platform/purchase.ts. */
+  licenceBuyUrl: "https://usemykey.com/buy",
+  tipUrl: "https://usemykey.com/tip",
 } as const;
 
 export const VAULT_FILENAME = "vault.mykey";

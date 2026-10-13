@@ -72,11 +72,23 @@ export function aboutInfo(): AboutInfo {
   };
 }
 
-/** Licence / tip-jar slot for the About screen.
-
- * FREE-TIER SLOT: intentionally no purchase content until the
- * owner rules on the free-tier + tip question. When it lands, the
- * block renders here — nothing else in About needs to change. */
-export function licenceSlotLines(): string[] {
-  return [];
+/** Licence / tip-jar block for the About screen.
+ *
+ * The free-tier ruling landed with the licensing wave (client
+ * 1.3.0), so the slot carries the plain-words summary. The caller
+ * passes the open vault's live status line when there is one
+ * (About is also reachable from the locked screen, where only
+ * the standing summary shows). Buying and key entry themselves
+ * live in Settings — About informs, Settings acts. */
+export function licenceSlotLines(statusLine?: string): string[] {
+  const lines = [
+    "Free version: up to 50 passwords and 4 connections (devices, " +
+      "agents and paired browsers in one shared pool). A one-time " +
+      "licence unlocks unlimited passwords and 20 connections. Only " +
+      "the counts are limited — every security feature is free, and " +
+      "a vault already over the limit still opens and works fully.",
+    "To buy a licence or paste a licence key, open Settings. " +
+      "The tip jar is there too — tips are thanks only and unlock nothing.",
+  ];
+  return statusLine ? [statusLine, ...lines] : lines;
 }

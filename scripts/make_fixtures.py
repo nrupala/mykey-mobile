@@ -161,6 +161,59 @@ def main():
         "agent": {"id": "fixture-agent", "token": token,
                   "scopes": ["list", "get:github"]},
     }
+    # Licensing wave: a vault carrying a TEST licence in its
+    # encrypted settings (tests/licence.test.ts opens it as
+    # licensed). Guarded: fixture generation works against a
+    # desktop checkout that predates the licensing module too —
+    # the fixture is then skipped, and the TS test treats it as
+    # optional for the same reason. The token is the shared
+    # cross-client fixture: seed bytes(range(32)), fixed payload,
+    # identical string in both repos' test suites. FAKE test
+    # licence — the test authority, never the production one.
+    try:
+        import licensing as licensing_mod
+    except ImportError:
+        licensing_mod = None
+    if licensing_mod is not None:
+        import tempfile
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey)
+        # Keep the device-local slot out of the runner's real home.
+        licensing_mod.device_licence_path = lambda: os.path.join(
+            tempfile.mkdtemp(prefix="mykey-fixture-"), "licence.key")
+        test_priv = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+        test_payload = {
+            "licence_id": "lic-test000000000001",
+            "licensee": "test-buyer@example.com",
+            "product": "mykey",
+            "edition": "unlimited",
+            "issued_at": "2026-10-13T00:00:00Z",
+            "payment_date": "2026-10-01",
+            "serial": "0123456789abcdeffedcba9876543210",
+            "passcode": licensing_mod.compute_passcode(
+                "test-buyer@example.com", "2026-10-01", "1990-05-17",
+                "0123456789abcdeffedcba9876543210"),
+            "max_connections": 20,
+        }
+        test_token = licensing_mod.make_token(test_payload, test_priv)
+        lic_path = os.path.join(OUT, "py-licensed.mykey")
+        for suffix in ("", ".bak", ".audit.jsonl", ".audit-anchor.json"):
+            try:
+                os.unlink(lic_path + suffix)
+            except OSError:
+                pass
+        lapp = MyKey("cross-client fixture 1", vault_file=lic_path)
+        lapp.licence_public_key_b64 = (
+            "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=")
+        licensing_mod.activate_licence(lapp, test_token)
+        lapp.add_entry(make_entry(service="fixture-service",
+                                  username="user", password="fixture-pw"))
+        for suffix in (".bak", ".audit.jsonl", ".audit-anchor.json"):
+            try:
+                os.unlink(lic_path + suffix)
+            except OSError:
+                pass
+
     # Remove Python sidecar/backup files so the fixtures directory
     # ships exactly the artefacts the tests consume.
     for suffix in (".bak", ".audit.jsonl", ".audit-anchor.json",
