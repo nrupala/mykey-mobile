@@ -59,6 +59,12 @@ import {
   type GenericMapping,
   type ImportRecord,
 } from "../vault/csvio.js";
+import {
+  rotationDueCount,
+  rotationLine,
+  rotationReport,
+  rotationStatus,
+} from "../vault/rotation.js";
 import { store, type AppSettings } from "../vault/store.js";
 import { chooseTheme, currentThemeChoice } from "./appearance.js";
 import {
@@ -1117,6 +1123,15 @@ function renderUnlocked(selectedId?: string): void {
   const session = state.session!;
   const root = el("section", { class: "screen" });
   root.append(el("h2", {}, "Your passwords"));
+  const defaultRotateDays = session.vaultSettings().default_rotate_days;
+
+  const dueCount = rotationDueCount(session.listEntries(), defaultRotateDays);
+  if (dueCount > 0) {
+    root.append(
+      el("p", { class: "alert alert-info", role: "note" },
+        `${dueCount} password${dueCount === 1 ? " is" : "s are"} due for a change — see Password rotation below.`),
+    );
+  }
 
   if (session.auditSealed) {
     root.append(
@@ -1139,6 +1154,7 @@ function renderUnlocked(selectedId?: string): void {
   root.append(
     button("Add a password", () => renderEditor(null, selectedId), "primary"),
   );
+  root.append(rotationPanel());
   root.append(settingsPanel());
 
   const drawList = () => {
@@ -1168,6 +1184,11 @@ function renderUnlocked(selectedId?: string): void {
       if (entry.totp_secret) {
         const code = el("span", { class: "entry-totp", "data-totp-for": entry.id }, "······");
         item.append(code);
+      }
+      const rState = rotationStatus(entry, defaultRotateDays).state;
+      if (rState === "overdue" || rState === "due_soon") {
+        item.append(el("span", { class: "entry-rotation" },
+          rState === "overdue" ? "⚠️ change overdue" : "⏰ change due"));
       }
       item.addEventListener("click", () => {
         renderUnlocked(entry.id);
@@ -1202,6 +1223,36 @@ function renderUnlocked(selectedId?: string): void {
   };
   void tick();
   state.totpTimer = window.setInterval(() => void tick(), 1000);
+}
+
+/** The calm Rotation section of the unlocked screen: only what
+ * needs attention (due soon, overdue, date not recorded), each
+ * with its plain-language line. No nagging anywhere else. */
+function rotationPanel(): HTMLElement {
+  const session = state.session!;
+  const panel = el("section", { class: "card rotation", "aria-label": "Password rotation" });
+  panel.append(el("h3", {}, "Password rotation"));
+  const defaultDays = session.vaultSettings().default_rotate_days;
+  const rows = rotationReport(session.listEntries(), defaultDays)
+    .filter((r) => r.state === "overdue" || r.state === "due_soon" || r.state === "unknown");
+  if (rows.length === 0) {
+    panel.append(el("p", { class: "status" }, "Nothing needs changing right now."));
+    return panel;
+  }
+  for (const r of rows) {
+    const line = rotationLine(
+      { password_set_at: r.password_set_at, rotate_days: r.rotate_days }, null);
+    const suffix = r.state === "overdue" ? " — overdue"
+      : r.state === "due_soon" ? " — due soon" : "";
+    const item = el("button", { type: "button", class: "entry-item" });
+    item.append(
+      el("span", { class: "entry-service" }, r.service),
+      el("span", { class: "entry-user" }, `${line}${suffix}`),
+    );
+    item.addEventListener("click", () => renderUnlocked(r.id));
+    panel.append(item);
+  }
+  return panel;
 }
 
 function entryDetail(entry: VaultEntry): HTMLElement {
@@ -1244,10 +1295,17 @@ function entryDetail(entry: VaultEntry): HTMLElement {
   if (entry.url) showRow("Website", entry.url);
   if (entry.notes) showRow("Notes", entry.notes);
   if (entry.tags.length) showRow("Tags", entry.tags.join(", "));
+  showRow("Password age",
+    rotationLine(entry, session.vaultSettings().default_rotate_days));
 
   const actions = el("div", { class: "action-row" });
   actions.append(
     button("Edit", () => renderEditor(entry, entry.id)),
+    button("Mark as changed today", async () => {
+      await session.markPasswordChanged(entry.id);
+      await persist();
+      renderUnlocked(entry.id);
+    }),
     button("Delete", async (ev) => {
       const btn = ev.currentTarget as HTMLButtonElement;
       if (btn.dataset.armed !== "1") {
@@ -1328,6 +1386,47 @@ function renderEditor(entry: VaultEntry | null, backTo?: string): void {
   f.password.addEventListener("input", () => meter.update(f.password.value));
   meter.update(f.password.value);
 
+  // Per-entry rotation override: vault default, never, a preset
+  // period, or a custom number of days.
+  const rotateSelect = el("select", { class: "text-input" }) as HTMLSelectElement;
+  const ROTATE_PRESETS = ["30", "90", "180", "365"];
+  for (const [label, value] of [
+    ["Use the vault default", "default"],
+    ["Never — don't remind me about this one", "never"],
+    ...ROTATE_PRESETS.map((d) => [`Every ${d} days`, d] as [string, string]),
+    ["Custom…", "custom"],
+  ] as [string, string][]) {
+    rotateSelect.append(el("option", { value }, label));
+  }
+  const rotateCustom = input({ type: "number", min: "1", max: "36500", inputmode: "numeric" });
+  const currentRotate = entry?.rotate_days ?? null;
+  if (currentRotate === null) rotateSelect.value = "default";
+  else if (currentRotate === 0) rotateSelect.value = "never";
+  else if (ROTATE_PRESETS.includes(String(currentRotate))) {
+    rotateSelect.value = String(currentRotate);
+  } else {
+    rotateSelect.value = "custom";
+    rotateCustom.value = String(currentRotate);
+  }
+  const rotateCustomField = field("Custom period (days)", rotateCustom);
+  const syncRotateCustom = () => {
+    rotateCustomField.classList.toggle("hidden", rotateSelect.value !== "custom");
+  };
+  rotateSelect.addEventListener("change", syncRotateCustom);
+  syncRotateCustom();
+  const readRotateDays = (): number | null => {
+    if (rotateSelect.value === "default") return null;
+    if (rotateSelect.value === "never") return 0;
+    if (rotateSelect.value === "custom") {
+      const days = Number(rotateCustom.value);
+      if (!Number.isInteger(days) || days < 1) {
+        throw new Error("Type a whole number of days (1 or more), or pick another choice.");
+      }
+      return days;
+    }
+    return Number(rotateSelect.value);
+  };
+
   const form = el("form", { class: "form" });
   form.append(
     field("Service or app name", f.service),
@@ -1345,6 +1444,9 @@ function renderEditor(entry: VaultEntry | null, backTo?: string): void {
       "The setup key from the service, if it uses one-time sign-in codes."),
     field("Tags (optional, separated by commas)", f.tags),
     el("label", { class: "checkbox" }, favourite, " Favourite"),
+    field("Remind me to change this password", rotateSelect,
+      "MyKey notes the day each password was set and works out the change date from this."),
+    rotateCustomField,
     error,
   );
   const submit = button(entry ? "Save changes" : "Save password", async () => {}, "primary");
@@ -1362,7 +1464,15 @@ function renderEditor(entry: VaultEntry | null, backTo?: string): void {
       totp_secret: f.totp.value.trim(),
       tags: f.tags.value.split(",").map((t) => t.trim()).filter(Boolean),
       favourite: favourite.checked,
+      rotate_days: null as number | null,
     };
+    try {
+      values.rotate_days = readRotateDays();
+    } catch (err) {
+      error.textContent = errorText(err);
+      error.classList.remove("hidden");
+      return;
+    }
     try {
       const saved = entry
         ? await session.updateEntry(entry.id, values)
@@ -1415,6 +1525,52 @@ function settingsPanel(): HTMLElement {
   });
   panel.append(el("label", { class: "checkbox" }, hideBox,
     " Lock when the app is hidden or the screen turns off"));
+
+  // Vault-wide password rotation default (stored in the encrypted
+  // vault itself, so every client agrees). Per-entry choices win.
+  const vaultDefault = session.vaultSettings().default_rotate_days;
+  const rotateDefaultSelect = el("select", { class: "text-input" }) as HTMLSelectElement;
+  const ROTATE_DEFAULT_PRESETS = ["30", "90", "180", "365"];
+  for (const [label, value] of [
+    ["No rotation by default", "never"],
+    ...ROTATE_DEFAULT_PRESETS.map((d) => [`Change every ${d} days`, d] as [string, string]),
+    ["Custom…", "custom"],
+  ] as [string, string][]) {
+    rotateDefaultSelect.append(el("option", { value }, label));
+  }
+  const rotateDefaultCustom = input({ type: "number", min: "1", max: "36500", inputmode: "numeric" });
+  if (vaultDefault === null || vaultDefault === 0) rotateDefaultSelect.value = "never";
+  else if (ROTATE_DEFAULT_PRESETS.includes(String(vaultDefault))) {
+    rotateDefaultSelect.value = String(vaultDefault);
+  } else {
+    rotateDefaultSelect.value = "custom";
+    rotateDefaultCustom.value = String(vaultDefault);
+  }
+  const rotateDefaultCustomField = field("Custom default period (days)", rotateDefaultCustom);
+  const applyRotateDefault = async (days: number | null) => {
+    session.setDefaultRotateDays(days);
+    await persist();
+    renderUnlocked();
+  };
+  rotateDefaultSelect.addEventListener("change", async () => {
+    rotateDefaultCustomField.classList.toggle(
+      "hidden", rotateDefaultSelect.value !== "custom");
+    if (rotateDefaultSelect.value === "never") await applyRotateDefault(null);
+    else if (rotateDefaultSelect.value !== "custom") {
+      await applyRotateDefault(Number(rotateDefaultSelect.value));
+    }
+  });
+  rotateDefaultCustom.addEventListener("change", async () => {
+    const days = Number(rotateDefaultCustom.value);
+    if (Number.isInteger(days) && days >= 1) await applyRotateDefault(days);
+  });
+  rotateDefaultCustomField.classList.toggle(
+    "hidden", rotateDefaultSelect.value !== "custom");
+  panel.append(
+    field("Password change reminders (vault default)", rotateDefaultSelect,
+      "Passwords are due for a change this long after they were set, unless an entry has its own period."),
+    rotateDefaultCustomField,
+  );
 
   const actions = el("div", { class: "action-stack" });
   actions.append(

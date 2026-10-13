@@ -104,11 +104,17 @@ test("opens the Python fixture vault through the file picker", async ({ page }) 
   await page.getByLabel("Master password", { exact: true }).fill("Correct-Horse-2026!");
   await page.getByRole("button", { name: "Open this vault" }).click();
   await expect(page.getByRole("heading", { name: "Your passwords" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /github/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /bank/ })).toBeVisible();
+  const entryList = page.locator(".entry-list");
+  await expect(entryList.getByRole("button", { name: /github/ })).toBeVisible();
+  await expect(entryList.getByRole("button", { name: /bank/ })).toBeVisible();
+
+  // The fixture's dated passwords (set Nov 2023) are long past due
+  // at any real "today", so the unlock note counts both (rotation
+  // wave); the never-rotate entry stays out.
+  await expect(page.getByText("2 passwords are due for a change")).toBeVisible();
 
   // The github entry shows a live TOTP code (fixture carries TOTP).
-  await page.getByRole("button", { name: /github/ }).click();
+  await entryList.getByRole("button", { name: /github/ }).click();
   await expect(page.locator(".entry-totp, .kv-value.code").first()).toContainText(/\d{6}/);
 });
 
@@ -165,8 +171,9 @@ test("imports a Chrome CSV export into the vault", async ({ page }) => {
   await expect(page.getByText(/Added 2 new passwords/)).toBeVisible();
 
   await page.getByRole("button", { name: "See my passwords" }).click();
-  await expect(page.getByRole("button", { name: /github/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Example Bank/ })).toBeVisible();
+  const listAfterImport = page.locator(".entry-list");
+  await expect(listAfterImport.getByRole("button", { name: /github/ })).toBeVisible();
+  await expect(listAfterImport.getByRole("button", { name: /Example Bank/ })).toBeVisible();
 });
 
 test("CSV export stays blocked until the warning is confirmed", async ({ page }) => {

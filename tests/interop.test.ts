@@ -25,6 +25,7 @@ import {
 } from "../src/vault/device.js";
 import { verifyPairingPayload, type PairingRecord } from "../src/vault/pairings.js";
 import { b64decode, b64encode, randomBytes } from "../src/vault/encoding.js";
+import { rotationStatus } from "../src/vault/rotation.js";
 import {
   VaultCorruptError,
   VaultSession,
@@ -109,6 +110,21 @@ describe("Python-fixture vault opens in the TS client", () => {
     expect(file.slots.map((x: any) => x.id)).toContain("master");
     const again = await VaultSession.openWithPassword(saved, expected.password);
     expect(again.listEntries()).toHaveLength(3);
+  });
+});
+
+describe("password rotation fields in the Python fixture", () => {
+  it("reads the exact set dates, overrides and vault default Python wrote", async () => {
+    const s = await VaultSession.openWithPassword(vaultBytes, expected.password);
+    const rot = expected.rotation;
+    expect(s.vaultSettings().default_rotate_days).toBe(rot.default_rotate_days);
+    for (const entry of s.listEntries()) {
+      const want = rot.entries[entry.service];
+      expect(entry.password_set_at).toBe(rot.password_set_at);
+      expect(entry.rotate_days).toBe(want.rotate_days);
+      const status = rotationStatus(entry, rot.default_rotate_days, rot.status_now);
+      expect(status.state).toBe(want.state);
+    }
   });
 });
 

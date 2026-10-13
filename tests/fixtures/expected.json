@@ -1,7 +1,7 @@
 {
  "password": "Correct-Horse-2026!",
  "phrase": "legal winner thank year wave sausage worth useful legal winner thank yellow",
- "vault_id": "3b008f873ff3488b877b5dc3fabcc7e7",
+ "vault_id": "6adeb46fb15940c48f750f7e21d2cc7b",
  "entries": [
   {
    "service": "github",
@@ -44,20 +44,39 @@
   "at_1111111109": "081804"
  },
  "backup": {
-  "source_fingerprint": "aa71:2371:89ab:ee38:77df:1996:483d:a3bf",
+  "source_fingerprint": "a3a1:3b61:e673:0b5e:0bec:1c99:5522:adca",
   "package_file": "fixture.mykeybak",
-  "backup_code": "service page forum gas trash scale slogan know",
+  "backup_code": "gaze evoke cream wealth modify custom trap enter",
   "legacy_file": "fixture-v1.mykeybak"
  },
  "pairing": {
-  "target_id": "5f5f86a224b742fa9e72b5795ea24d01",
-  "fingerprint": "192f:afad:5dfa:a2c6:e7ba:87aa:b672:1ee8",
-  "priv_b64": "8NXSSF/DSAxTzC6zOL6tQdhtp1aEa8jcq+JmQzpgLVM=",
+  "target_id": "427b4a1c30064aa19dab88a4a9c7dfe9",
+  "fingerprint": "c356:3328:8d6c:bd20:1df2:6926:9f2b:cc8b",
+  "priv_b64": "6GD8w3RYJkEOGx7u9dcGzLanVpiYvP8fY7NlJkuFbVI=",
   "revoked_package_file": "fixture-nopair.mykeybak"
+ },
+ "rotation": {
+  "default_rotate_days": 120,
+  "password_set_at": 1700000000,
+  "status_now": 1708640000,
+  "entries": {
+   "github": {
+    "rotate_days": 90,
+    "state": "overdue"
+   },
+   "bank": {
+    "rotate_days": null,
+    "state": "ok"
+   },
+   "email": {
+    "rotate_days": 0,
+    "state": "off"
+   }
+  }
  },
  "agent": {
   "id": "fixture-agent",
-  "token": "mkag1.fixture-agent.TP3Bb5qxp9cLM4Oq2pUwkpc40uZCCLgppftoQDtAzc8",
+  "token": "mkag1.fixture-agent.Sj_aPH5jKvjloKhr7wk2J_XO2gmDu1rDSGy8EVM5erY",
   "scopes": [
    "list",
    "get:github"

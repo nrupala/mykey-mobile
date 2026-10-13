@@ -13,6 +13,12 @@ promise. Your vault is a single encrypted file (Vault v3, the same
 format as the desktop engine in `nrupala/mykey`); every device holds
 only ciphertext.
 
+The client also tracks **password age**: the day each password was
+set lives inside the encrypted vault, passwords come due for a
+change after 180 days by default (change the default — or per
+entry — or turn it off), and a calm rotation section lists what
+needs attention. No notifications yet; no new permissions.
+
 Product terms: [TERMS.md](TERMS.md). Code licensing:
 [LICENSING.md](LICENSING.md). Exact feature status:
 [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md). Appearance and

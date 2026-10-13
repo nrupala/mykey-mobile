@@ -4,6 +4,23 @@ All notable changes to the MyKey web client + Android app.
 Versions follow the client's own line; the vault format it speaks
 is Vault v3 (desktop engine 2.2.0).
 
+## [Unreleased]
+
+- **Password age + rotation.** The app notes the day each password
+  was set — inside the encrypted vault, next to the password
+  itself. Changing a password restarts its clock automatically;
+  "Mark as changed today" covers passwords changed on the website.
+  Passwords are due for a change after 180 days by default; the
+  vault default is changeable in Settings (including Never), and
+  each entry can carry its own period or opt out. Due states are
+  calm: a small badge in the list, a count at unlock, and a
+  Password rotation section listing what needs attention. No
+  notifications and no new permissions in this version (planned
+  as future work). Vaults written before this feature open
+  normally — the set date falls back to the entry's creation date,
+  or reads "date not recorded". Same semantics, file fields and
+  fixture gate as the desktop engine.
+
 ## [1.2.0] — 2026-10-13
 
 The blob wave: backup packages round-trip through this client.
