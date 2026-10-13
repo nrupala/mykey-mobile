@@ -19,12 +19,27 @@
 // unlocks the PYTHON-generated fixture vault file through the real
 // file-picker flow.
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), "..", "tests", "fixtures", "fixture.mykey");
+const CHROMIUM_CSV = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "chromium.csv");
 const MASTER = "E2e-Master-Password-1";
+
+async function createVaultAndEnter(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Welcome to MyKey" })).toBeVisible();
+  await page.getByRole("button", { name: "Create a new vault" }).click();
+  const fields = page.locator("form.form input[type='password']");
+  await fields.nth(0).fill(MASTER);
+  await fields.nth(1).fill(MASTER);
+  await page.getByRole("button", { name: "Create vault", exact: true }).click();
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: /open my vault/ }).click();
+  await expect(page.getByRole("heading", { name: "Your passwords" })).toBeVisible();
+}
 
 test("create, add, lock, unlock, offline reload", async ({ page, context }) => {
   await page.goto("/");
@@ -95,6 +110,93 @@ test("opens the Python fixture vault through the file picker", async ({ page }) 
   // The github entry shows a live TOTP code (fixture carries TOTP).
   await page.getByRole("button", { name: /github/ }).click();
   await expect(page.locator(".entry-totp, .kv-value.code").first()).toContainText(/\d{6}/);
+});
+
+test("device default follows a dark OS setting", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Welcome to MyKey" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
+});
+
+test("skin choice persists across lock, reload, and offline", async ({ page, context }) => {
+  await createVaultAndEnter(page);
+  // Light OS + no choice yet = the device default (Daylight).
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "daylight");
+
+  await page.getByRole("button", { name: /Appearance/ }).click();
+  await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+  await page.getByRole("button", { name: /Midnight/ }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Your passwords" })).toBeVisible();
+
+  // Lock + unlock keeps the skin.
+  await page.getByRole("button", { name: "Lock now" }).click();
+  await page.getByLabel("Master password", { exact: true }).fill(MASTER);
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Your passwords" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
+
+  // Offline reload keeps it too.
+  await page.waitForFunction(() => !!navigator.serviceWorker?.controller, null, {
+    timeout: 30_000,
+  });
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
+  await expect(page.getByRole("heading", { name: "Your vault is locked" })).toBeVisible();
+  await context.setOffline(false);
+});
+
+test("imports a Chrome CSV export into the vault", async ({ page }) => {
+  await createVaultAndEnter(page);
+  await page.getByRole("button", { name: /Import passwords/ }).click();
+  await expect(page.getByRole("heading", { name: "Import passwords" })).toBeVisible();
+
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Choose the exported file" }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles(CHROMIUM_CSV);
+
+  await expect(page.getByText(/are new to your vault/)).toBeVisible();
+  await page.getByRole("button", { name: "Add them to my vault" }).click();
+  await expect(page.getByRole("heading", { name: "Import finished" })).toBeVisible();
+  await expect(page.getByText(/Added 2 new passwords/)).toBeVisible();
+
+  await page.getByRole("button", { name: "See my passwords" }).click();
+  await expect(page.getByRole("button", { name: /github/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Example Bank/ })).toBeVisible();
+});
+
+test("CSV export stays blocked until the warning is confirmed", async ({ page }) => {
+  await createVaultAndEnter(page);
+  await page.getByRole("button", { name: "Add a password" }).click();
+  await page.getByLabel("Service or app name").fill("github");
+  await page.getByLabel("Username or email").fill("octocat");
+  await page.getByLabel("Password", { exact: true }).fill("e2e-secret-123");
+  await page.getByRole("button", { name: "Save password" }).click();
+  await expect(page.getByRole("button", { name: /github/ })).toBeVisible();
+
+  await page.getByRole("button", { name: /Export passwords/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Export passwords as a readable file" }),
+  ).toBeVisible();
+  await expect(page.getByText(/NOT encrypted/)).toBeVisible();
+
+  const exportBtn = page.getByRole("button", { name: "Export the readable file" });
+  await expect(exportBtn).toBeDisabled();
+  await page.getByRole("checkbox").check();
+  await expect(exportBtn).toBeEnabled();
+
+  const downloadPromise = page.waitForEvent("download");
+  await exportBtn.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("mykey_export.csv");
+  const path = await download.path();
+  const content = readFileSync(path!, "utf8");
+  expect(content).toContain("Service,Username,Password,URL,Notes");
+  expect(content).toContain("github,octocat,e2e-secret-123");
 });
 
 test("lock on hide: hidden tab locks the vault", async ({ page }) => {

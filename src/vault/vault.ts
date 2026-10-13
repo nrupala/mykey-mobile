@@ -59,6 +59,12 @@ import {
   normalizePhrase,
   recoveryBackupPublic,
 } from "./recovery.js";
+import {
+  classifyImport,
+  type ConflictPolicy,
+  type ImportRecord,
+  type ImportStats,
+} from "./csvio.js";
 
 export const FORMAT_TOKEN = "MKVLT";
 export const FORMAT_VERSION = 3;
@@ -580,6 +586,69 @@ export class VaultSession {
     this.deks.delete(id);
     delete (this.core.origins as Record<string, string>)[id];
     return { ...removed! };
+  }
+
+  /** Bulk import — mirrors the desktop engine's import_entries /
+   * resolve_import exactly: records key on (service, username),
+   * case-insensitive; same password is a duplicate (skipped);
+   * a different password is a conflict, settled by the policy
+   * the user picked: "skip" keeps the vault's entry, "overwrite"
+   * replaces it with the file's, "keep_both" adds a second entry.
+   * The caller persists afterwards. */
+  async importEntries(
+    records: ImportRecord[],
+    onConflict: ConflictPolicy = "skip",
+  ): Promise<ImportStats> {
+    const { fresh, duplicates, conflicts } = classifyImport(records, this.entriesList);
+    const stats: ImportStats = {
+      added: 0,
+      duplicates: duplicates.length,
+      conflicts: conflicts.length,
+      overwritten: 0,
+      keptBoth: 0,
+      skippedConflicts: 0,
+    };
+    const register = (rec: ImportRecord): void => {
+      const ts = nowSeconds();
+      const entry: VaultEntry = {
+        ...rec,
+        tags: [...rec.tags],
+        id: uuidHex(),
+        created: ts,
+        updated: ts,
+      };
+      this.deks.set(entry.id, {
+        pw: randomBytes(32),
+        totp: entry.totp_secret ? randomBytes(32) : null,
+      });
+      (this.core.origins as Record<string, string>)[entry.id] = "human";
+      this.entriesList.push(entry);
+    };
+    for (const rec of fresh) {
+      register(rec);
+      stats.added++;
+    }
+    for (const rec of conflicts) {
+      if (onConflict === "overwrite") {
+        const existing = this.entriesList.find(
+          (e) =>
+            e.service.toLowerCase() === rec.service.toLowerCase() &&
+            e.username.toLowerCase() === rec.username.toLowerCase(),
+        );
+        if (existing) {
+          await this.updateEntry(existing.id, { ...rec });
+          stats.overwritten++;
+        } else {
+          stats.skippedConflicts++;
+        }
+      } else if (onConflict === "keep_both") {
+        register(rec);
+        stats.keptBoth++;
+      } else {
+        stats.skippedConflicts++;
+      }
+    }
+    return stats;
   }
 
   // ---------------------------------------------------------------

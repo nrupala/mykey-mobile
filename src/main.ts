@@ -13,8 +13,13 @@
 // Copyright (c) 2026 2351485 ALBERTA INC.
 
 import { registerSW } from "virtual:pwa-register";
+import { applyTheme, loadThemeChoice } from "./ui/appearance.js";
 import { boot } from "./ui/app.js";
 import "./styles.css";
+
+// Paint the user's skin (or the device default) before anything
+// renders, so the app never flashes the wrong colours.
+applyTheme(loadThemeChoice());
 
 // Offline app shell: the service worker precaches the whole client
 // on first visit. There are no network calls afterwards — the app

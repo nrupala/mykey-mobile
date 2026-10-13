@@ -4,18 +4,38 @@
 /* MyKey web client — plain, high-contrast, big targets.
    Designed for the technically least-able customer: one obvious
    next action per screen, words over icons, nothing decorative
-   that moves. */
+   that moves.
+
+   COLOURS: every colour below is a theme token (a CSS variable).
+   The token VALUES live in src/ui/themes.ts — one palette per
+   skin — and src/ui/appearance.ts paints them onto :root. The
+   fallbacks here are the Daylight palette, only so the very first
+   paint (before the script runs) is sane. No component may use a
+   literal colour: the contrast gate in tests/themes.test.ts covers
+   the token pairs, and a literal would escape it. */
 
 :root {
-  --ink: #10222e;
   --paper: #ffffff;
+  --surface: #f4f8fa;
+  --ink: #10222e;
+  --muted: #41586b;
   --brand: #0b3d5c;
   --brand-ink: #ffffff;
-  --accent: #0b6e2f;
+  --brand-soft: #e3eff6;
+  --accent: #0a6b2d;
+  --caution: #8a5a00;
   --danger: #a01717;
-  --muted: #44586a;
-  --line: #c9d6df;
-  --focus: #f0b43c;
+  --danger-soft: #fdecec;
+  --danger-soft-ink: #5f0d0d;
+  --info-soft: #e9f3fa;
+  --info-soft-ink: #0d3049;
+  --line: #6e8b9c;
+  --focus: #c07f10;
+  --meter-1: #c62828;
+  --meter-2: #e07b00;
+  --meter-3: #c9a100;
+  --meter-4: #5f9e2f;
+  --meter-5: #0a6b2d;
   color-scheme: light;
 }
 
@@ -29,6 +49,7 @@ body {
   color: var(--ink);
   background: var(--paper);
   line-height: 1.5;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 .skip-link {
@@ -46,6 +67,7 @@ body {
   background: var(--brand);
   color: var(--brand-ink);
   padding: 1rem 1.25rem;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 .app-title { margin: 0; font-size: 1.6rem; }
 .app-tagline { margin: 0.15rem 0 0; opacity: 0.9; }
@@ -81,12 +103,14 @@ h3 { font-size: 1.2rem; margin: 0.25rem 0 0.75rem; }
   color: var(--brand);
   cursor: pointer;
   text-align: center;
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
 }
 .btn-primary { background: var(--brand); color: var(--brand-ink); }
 .btn-danger { border-color: var(--danger); color: var(--danger); }
 .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
 .btn:focus-visible, .text-input:focus-visible, .entry-item:focus-visible,
-a:focus-visible, input[type="checkbox"]:focus-visible {
+.skin-option:focus-visible, a:focus-visible,
+input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
@@ -108,8 +132,8 @@ a:focus-visible, input[type="checkbox"]:focus-visible {
 .or { text-align: center; color: var(--muted); margin: 0.5rem 0; }
 
 .alert { padding: 0.8rem 1rem; border-radius: 0.5rem; margin: 0.75rem 0; }
-.alert-error { background: #fdecec; border: 2px solid var(--danger); color: #5f0d0d; }
-.alert-info { background: #e9f3fa; border: 2px solid var(--brand); color: #0d3049; }
+.alert-error { background: var(--danger-soft); border: 2px solid var(--danger); color: var(--danger-soft-ink); }
+.alert-info { background: var(--info-soft); border: 2px solid var(--brand); color: var(--info-soft-ink); }
 .hidden { display: none !important; }
 
 .card {
@@ -119,6 +143,8 @@ a:focus-visible, input[type="checkbox"]:focus-visible {
   margin: 1rem 0;
   display: grid;
   gap: 0.75rem;
+  background: var(--surface);
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 .action-stack { display: grid; gap: 0.75rem; margin-top: 1rem; }
@@ -141,11 +167,13 @@ a:focus-visible, input[type="checkbox"]:focus-visible {
   padding: 0.85rem 1rem;
   border: 2px solid var(--line);
   border-radius: 0.6rem;
-  background: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   cursor: pointer;
   width: 100%;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
-.entry-item.selected { border-color: var(--brand); background: #eef6fb; }
+.entry-item.selected { border-color: var(--brand); background: var(--brand-soft); }
 .entry-service { font-weight: 700; font-size: 1.08rem; }
 .entry-user { color: var(--muted); }
 .entry-totp { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
@@ -173,8 +201,84 @@ a:focus-visible, input[type="checkbox"]:focus-visible {
 
 .checkbox { display: flex; gap: 0.6rem; align-items: flex-start; font-weight: 500; }
 .checkbox input { width: 1.4rem; height: 1.4rem; margin-top: 0.1rem; flex: none; }
+.radio { display: flex; gap: 0.6rem; align-items: flex-start; font-weight: 500; }
+.radio input { width: 1.4rem; height: 1.4rem; margin-top: 0.1rem; flex: none; }
 
 .settings { margin-top: 2rem; }
+
+/* Password strength meter: five segments, coloured weakest →
+   strongest by the theme's meter ramp, always paired with a word
+   so meaning never rides on colour alone. */
+.meter { display: flex; gap: 0.3rem; margin-top: 0.4rem; }
+.meter-seg {
+  height: 0.6rem;
+  flex: 1;
+  border-radius: 0.3rem;
+  background: var(--line);
+  opacity: 0.35;
+}
+.meter-seg.on { opacity: 1; }
+.meter-seg.on[data-level="1"] { background: var(--meter-1); }
+.meter-seg.on[data-level="2"] { background: var(--meter-2); }
+.meter-seg.on[data-level="3"] { background: var(--meter-3); }
+.meter-seg.on[data-level="4"] { background: var(--meter-4); }
+.meter-seg.on[data-level="5"] { background: var(--meter-5); }
+.meter-word { font-weight: 600; margin: 0.3rem 0 0; }
+
+/* Skin picker: one big, obvious row per skin, with live swatches.
+   Picking a row restyles the whole app instantly — the picker is
+   its own preview. */
+.skin-list { display: grid; gap: 0.75rem; margin-top: 1rem; }
+.skin-option {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+.skin-option[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.swatches { display: flex; gap: 0.25rem; flex: none; align-items: center; }
+.swatch {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  flex: none;
+}
+.swatch-band {
+  width: 4.2rem;
+  height: 1.35rem;
+  border-radius: 0.7rem;
+  border: 2px solid var(--line);
+  flex: none;
+}
+.skin-text { display: grid; gap: 0.1rem; }
+.skin-name { font-weight: 700; font-size: 1.05rem; }
+.skin-blurb { color: var(--muted); font-size: 0.95rem; }
+.skin-now { color: var(--brand); font-weight: 700; font-size: 0.95rem; }
+
+/* The CSV export warning: the one screen that must slow the user
+   down on purpose. */
+.warning-panel {
+  background: var(--danger-soft);
+  border: 2px solid var(--danger);
+  color: var(--danger-soft-ink);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.warning-panel h3 { margin: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

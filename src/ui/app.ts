@@ -24,8 +24,33 @@ import {
   importPackageWithRecovery,
   inspectPackage,
 } from "../vault/backup.js";
-import { b64decode, b64encode, randomBytes } from "../vault/encoding.js";
+import {
+  b64decode,
+  b64encode,
+  randomBytes,
+  utf8Decode,
+  utf8Encode,
+} from "../vault/encoding.js";
+import {
+  classifyImport,
+  exportCsv,
+  EXPORT_FILENAME,
+  genericMapEntries,
+  parseImportCsv,
+  rowsFromCsv,
+  type ConflictPolicy,
+  type GenericMapping,
+  type ImportRecord,
+} from "../vault/csvio.js";
 import { store, type AppSettings } from "../vault/store.js";
+import { chooseTheme, currentThemeChoice } from "./appearance.js";
+import {
+  CHAKRA_SPECTRUM,
+  DEVICE_DARK,
+  DEVICE_LIGHT,
+  THEMES,
+  THEME_ORDER,
+} from "./themes.js";
 import { totpNow, totpSecondsRemaining } from "../vault/totp.js";
 import {
   VaultSession,
@@ -504,13 +529,17 @@ function renderOpenFile(): void {
   render(root);
 }
 
-function storedVaultId(): string | null {
-  if (!state.storedBytes) return null;
+function vaultIdOf(bytes: Uint8Array | null): string | null {
+  if (!bytes) return null;
   try {
-    return JSON.parse(new TextDecoder().decode(state.storedBytes)).vault_id ?? null;
+    return JSON.parse(new TextDecoder().decode(bytes)).vault_id ?? null;
   } catch {
     return null;
   }
+}
+
+function storedVaultId(): string | null {
+  return vaultIdOf(state.storedBytes);
 }
 
 function renderRestore(): void {
@@ -757,6 +786,48 @@ function entryDetail(entry: VaultEntry): HTMLElement {
   return box;
 }
 
+/** Strength estimate for the editor's meter: length and variety,
+ * shown as five segments plus a word — never colour alone. */
+function passwordStrength(pw: string): { score: number; word: string } {
+  if (!pw) return { score: 0, word: "" };
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (pw.length >= 16) score++;
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/]
+    .filter((r) => r.test(pw)).length;
+  if (classes >= 3) score++;
+  if (classes === 4 && pw.length >= 12) score++;
+  const words = ["", "Very weak", "Weak", "Fair", "Strong", "Excellent"];
+  return { score: Math.min(5, score), word: words[Math.min(5, score)]! };
+}
+
+function strengthMeter(): {
+  root: HTMLElement;
+  update: (pw: string) => void;
+} {
+  const segs: HTMLElement[] = [];
+  const bar = el("div", { class: "meter", "aria-hidden": "true" });
+  for (let i = 0; i < 5; i++) {
+    const seg = el("span", { class: "meter-seg" });
+    segs.push(seg);
+    bar.append(seg);
+  }
+  const word = el("p", { class: "meter-word", "aria-live": "polite" });
+  const root = el("div", {}, bar, word);
+  return {
+    root,
+    update(pw: string) {
+      const { score, word: label } = passwordStrength(pw);
+      segs.forEach((seg, i) => {
+        seg.classList.toggle("on", i < score);
+        seg.dataset.level = String(Math.max(1, score));
+      });
+      word.textContent = pw ? `Password strength: ${label}` : "";
+    },
+  };
+}
+
 function renderEditor(entry: VaultEntry | null, backTo?: string): void {
   const session = state.session!;
   const root = el("section", { class: "screen" });
@@ -775,14 +846,20 @@ function renderEditor(entry: VaultEntry | null, backTo?: string): void {
   const favourite = el("input", { type: "checkbox" }) as HTMLInputElement;
   favourite.checked = entry?.favourite ?? false;
 
+  const meter = strengthMeter();
+  f.password.addEventListener("input", () => meter.update(f.password.value));
+  meter.update(f.password.value);
+
   const form = el("form", { class: "form" });
   form.append(
     field("Service or app name", f.service),
     field("Username or email", f.username),
     field("Password", f.password),
+    meter.root,
     button("Make a strong password for me", () => {
       f.password.value = generatePassword(20);
       f.password.type = "text";
+      meter.update(f.password.value);
     }),
     field("Website (optional)", f.url),
     field("Notes (optional)", notes),
@@ -872,6 +949,9 @@ function settingsPanel(): HTMLElement {
     button(session.hasRecovery() ? "Replace my recovery phrase" : "Set up a recovery phrase",
       () => renderPhraseSetup(session, false)),
     button("Change master password", () => renderChangeMaster()),
+    button("Appearance — colours and skins", () => renderAppearance()),
+    button("Import passwords from a browser file", () => renderImportCsv()),
+    button("Export passwords as a readable file (CSV)", () => renderExportCsv()),
   );
 
   if (syncFolderSupported()) {
@@ -907,9 +987,34 @@ function settingsPanel(): HTMLElement {
         lock("Vault replaced from your sync folder. Unlock to open it.");
       }),
     );
-  } else if (!isNativeApp()) {
+  } else if (isNativeApp()) {
+    // The Android app has no folder picker (the WebView does not
+    // provide one), so sync here is an honest file flow through
+    // the user's own cloud app — labelled as exactly that.
+    actions.append(
+      button("Load a vault file from my cloud app", async () => {
+        const picked = await pickFile();
+        if (!picked) return;
+        const pickedId = vaultIdOf(picked.bytes);
+        if (!pickedId) {
+          status.textContent = "That file isn't a MyKey vault file.";
+          return;
+        }
+        const message =
+          pickedId === session.vaultId
+            ? "Replace the vault on this phone with this file's copy? Do this when the file is the newer one — changes made here since then will be lost."
+            : "This file holds a different vault from the one open now. Replace the vault on this phone with it? The vault open now stays safe in its own file, wherever you saved it.";
+        if (!window.confirm(message)) return;
+        state.storedBytes = picked.bytes;
+        await store.setVaultBytes(picked.bytes);
+        lock("Vault loaded from the file. Unlock to open it.");
+      }),
+    );
     panel.append(el("p", { class: "hint" },
-      "Folder sync needs a Chromium browser. Here you can use “Download my vault file” and open the file on the other device."));
+      "Syncing in the app works through files: “Download my vault file” saves the encrypted vault into your cloud app (Drive, iCloud, and the like), and “Load a vault file” brings a newer copy back. MyKey itself never connects anywhere — your cloud app carries the file."));
+  } else {
+    panel.append(el("p", { class: "hint" },
+      "Folder sync needs a desktop Chromium browser. In this browser, use “Download my vault file”, carry it with your cloud app, and choose “Open a vault file” on the other device."));
   }
 
   if (isNativeApp()) {
@@ -981,6 +1086,313 @@ function renderChangeMaster(): void {
     }
   });
   root.append(form);
+  render(root);
+  armAutoLock();
+}
+
+// ------------------------------------------------------------------
+// Appearance (skins)
+// ------------------------------------------------------------------
+
+function skinSwatches(choiceId: string): HTMLElement {
+  const wrap = el("span", { class: "swatches" });
+  const dot = (colour: string) => {
+    const d = el("span", { class: "swatch" });
+    d.style.background = colour;
+    return d;
+  };
+  if (choiceId === "device") {
+    wrap.append(
+      dot(THEMES[DEVICE_LIGHT]!.tokens.brand),
+      dot(THEMES[DEVICE_DARK]!.tokens.brand),
+    );
+    return wrap;
+  }
+  const def = THEMES[choiceId]!;
+  wrap.append(dot(def.tokens.paper), dot(def.tokens.brand), dot(def.tokens.accent));
+  if (choiceId === "chakra") {
+    const band = el("span", { class: "swatch-band" });
+    band.style.background =
+      `linear-gradient(90deg, ${CHAKRA_SPECTRUM.join(", ")})`;
+    wrap.append(band);
+  }
+  return wrap;
+}
+
+function renderAppearance(): void {
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Appearance"));
+  root.append(
+    el("p", { class: "lede" },
+      "Pick the colours that feel right to you. Tapping a skin changes the whole app at once, so you can see it before you decide. Your choice is saved on this device only."),
+  );
+  const list = el("div", { class: "skin-list" });
+  const draw = () => {
+    list.replaceChildren();
+    const choice = currentThemeChoice();
+    const option = (id: string, name: string, blurb: string) => {
+      const active = choice === id;
+      const btn = el("button", {
+        type: "button",
+        class: "skin-option",
+        "aria-pressed": active ? "true" : "false",
+      });
+      btn.append(
+        skinSwatches(id),
+        el("span", { class: "skin-text" },
+          el("span", { class: "skin-name" }, name),
+          el("span", { class: "skin-blurb" }, blurb)),
+      );
+      if (active) btn.append(el("span", { class: "skin-now" }, "In use"));
+      btn.addEventListener("click", () => {
+        chooseTheme(id);
+        draw();
+      });
+      return btn;
+    };
+    list.append(option(
+      "device",
+      "Use device settings",
+      "Follows this device: light or dark, as the device itself is set.",
+    ));
+    for (const id of THEME_ORDER) {
+      const def = THEMES[id]!;
+      list.append(option(id, def.name, def.blurb));
+    }
+  };
+  draw();
+  root.append(
+    list,
+    el("div", { class: "action-stack" },
+      button("Back", () => renderUnlocked())),
+  );
+  render(root);
+  armAutoLock();
+}
+
+// ------------------------------------------------------------------
+// CSV import (browser exports) + export
+// ------------------------------------------------------------------
+
+function renderImportCsv(): void {
+  const session = state.session!;
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Import passwords"));
+  root.append(
+    el("p", { class: "lede" },
+      "Bring in passwords you saved in a browser. First export them from that browser into a file (in Chrome: Settings, then Passwords, then Export). Then pick the file here. It is read on this device only and never sent anywhere — everything lands inside your encrypted vault."),
+  );
+  const error = el("p", { class: "alert alert-error hidden", role: "alert" });
+  const work = el("div", {});
+  root.append(error, work);
+
+  let entries: ImportRecord[] = [];
+  let skippedEmpty = 0;
+  let policyInputs: HTMLInputElement[] = [];
+
+  const showError = (msg: string) => {
+    error.textContent = msg;
+    error.classList.remove("hidden");
+  };
+
+  const chosenPolicy = (): ConflictPolicy =>
+    (policyInputs.find((i) => i.checked)?.value ?? "skip") as ConflictPolicy;
+
+  const showPreview = (formatLabel: string) => {
+    work.replaceChildren();
+    policyInputs = [];
+    const cls = classifyImport(entries, session.listEntries());
+    const box = el("div", { class: "card" });
+    box.append(el("h3", {}, "Check before importing"));
+    box.append(el("p", {}, `This looks like ${formatLabel}.`));
+    box.append(el("p", {},
+      `${entries.length} password${entries.length === 1 ? "" : "s"} in the file` +
+      (skippedEmpty ? `, with ${skippedEmpty} blank row${skippedEmpty === 1 ? "" : "s"} skipped.` : ".")));
+    box.append(el("p", {}, `${cls.fresh.length} are new to your vault.`));
+    if (cls.duplicates.length) {
+      box.append(el("p", {},
+        `${cls.duplicates.length} are already in your vault with the same password — those are skipped.`));
+    }
+    if (cls.conflicts.length) {
+      box.append(el("p", {},
+        `${cls.conflicts.length} match a name already in your vault, but with a different password. What should happen to those?`));
+      const group = el("div", { class: "form", role: "radiogroup",
+        "aria-label": "What to do when a password differs" });
+      for (const [value, label] of [
+        ["skip", "Keep the password already in my vault"],
+        ["overwrite", "Use the password from the file instead"],
+        ["keep_both", "Keep both — add the file's as a second entry"],
+      ] as const) {
+        const radio = el("input", { type: "radio", name: "conflict-policy", value }) as HTMLInputElement;
+        if (value === "skip") radio.checked = true;
+        policyInputs.push(radio);
+        group.append(el("label", { class: "radio" }, radio, ` ${label}`));
+      }
+      box.append(group);
+    }
+    const doImport = button("Add them to my vault", async () => {
+      const stats = await session.importEntries(entries, chosenPolicy());
+      await persist();
+      const parts = [`Added ${stats.added} new password${stats.added === 1 ? "" : "s"}.`];
+      if (stats.overwritten) parts.push(`Replaced ${stats.overwritten} with the file's version.`);
+      if (stats.keptBoth) parts.push(`Kept both copies of ${stats.keptBoth}.`);
+      if (stats.skippedConflicts) parts.push(`Left ${stats.skippedConflicts} unchanged, as you chose.`);
+      if (stats.duplicates) parts.push(`Skipped ${stats.duplicates} that were already here.`);
+      work.replaceChildren(
+        el("div", { class: "card" },
+          el("h3", {}, "Import finished"),
+          el("p", {}, parts.join(" ")),
+          el("p", { class: "hint" },
+            "You can delete the exported file now — everything you need is inside your vault."),
+          button("See my passwords", () => renderUnlocked(), "primary")),
+      );
+    }, "primary");
+    if (cls.fresh.length + cls.conflicts.length === 0) doImport.disabled = true;
+    box.append(
+      doImport,
+      button("Choose a different file", () => renderImportCsv()),
+      button("Cancel", () => renderUnlocked()),
+    );
+    work.append(box);
+  };
+
+  const showMapping = (headers: string[], rows: Array<Record<string, string>>) => {
+    work.replaceChildren();
+    const box = el("div", { class: "card" });
+    box.append(el("h3", {}, "Which column is which?"));
+    box.append(el("p", {},
+      "We couldn't place this file on our own. Tell us which column holds each thing, and we'll take it from there."));
+    const guesses: Record<string, string[]> = {
+      service: ["name", "Title", "service", "Service", "site", "Site"],
+      username: ["username", "Username", "login_username", "user", "email"],
+      password: ["password", "Password", "login_password"],
+      url: ["url", "URL", "login_uri", "website", "Website"],
+      notes: ["notes", "Notes", "note"],
+      totp_secret: ["totp", "login_totp", "OTPAuth", "totp_secret"],
+    };
+    const selects = new Map<string, HTMLSelectElement>();
+    const form = el("div", { class: "form" });
+    for (const [key, label] of [
+      ["service", "Service or app name (needed)"],
+      ["username", "Username or email"],
+      ["password", "Password (needed)"],
+      ["url", "Website"],
+      ["notes", "Notes"],
+      ["totp_secret", "Sign-in code secret"],
+    ] as const) {
+      const select = el("select", { class: "text-input" }) as HTMLSelectElement;
+      select.append(el("option", { value: "" }, "Not in the file"));
+      for (const h of headers) select.append(el("option", { value: h }, h));
+      const guess = guesses[key]!.find((g) => headers.includes(g));
+      if (guess) select.value = guess;
+      selects.set(key, select);
+      form.append(field(label, select));
+    }
+    box.append(form);
+    box.append(
+      button("Preview the import", () => {
+        const mapping: GenericMapping = {};
+        for (const [key, select] of selects) {
+          if (select.value) {
+            (mapping as Record<string, string>)[key] = select.value;
+          }
+        }
+        if (!mapping.service || !mapping.password) {
+          showError("Pick the columns for the service name and the password — those two are needed.");
+          return;
+        }
+        error.classList.add("hidden");
+        const mapped = genericMapEntries(rows, mapping);
+        entries = mapped.filter((e) => e.service || e.username);
+        skippedEmpty = mapped.length - entries.length;
+        showPreview("a file you matched by hand");
+      }, "primary"),
+      button("Cancel", () => renderUnlocked()),
+    );
+    work.append(box);
+  };
+
+  const start = el("div", { class: "action-stack" });
+  start.append(
+    button("Choose the exported file", async () => {
+      error.classList.add("hidden");
+      const picked = await pickFile(".csv,text/csv,text/plain");
+      if (!picked) return;
+      const text = utf8Decode(picked.bytes);
+      let parsed;
+      try {
+        parsed = parseImportCsv(text);
+      } catch {
+        showError("That file doesn't look like a password export — it needs a first row naming its columns.");
+        return;
+      }
+      if (parsed.format === "generic") {
+        let rows: Array<Record<string, string>>;
+        try {
+          rows = rowsFromCsv(text).rows;
+        } catch {
+          showError("That file doesn't look like a password export.");
+          return;
+        }
+        showMapping(parsed.headers, rows);
+        return;
+      }
+      const totalRows = rowsFromCsv(text).rows.length;
+      entries = parsed.entries;
+      skippedEmpty = Math.max(0, totalRows - entries.length);
+      showPreview(
+        parsed.format === "chromium"
+          ? "a Chrome-family export (Chrome, Edge, Brave, and similar)"
+          : "a Firefox export",
+      );
+    }, "primary"),
+    button("Back", () => renderUnlocked()),
+  );
+  work.append(start);
+  render(root);
+  armAutoLock();
+}
+
+function renderExportCsv(): void {
+  const session = state.session!;
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Export passwords as a readable file"));
+  const entries = session.listEntries();
+  const status = el("p", { class: "status", "aria-live": "polite" });
+
+  const warning = el("div", { class: "warning-panel" });
+  warning.append(
+    el("h3", {}, "Please read this first"),
+    el("p", {},
+      "This makes a file (a CSV) that lists your passwords in plain words. It is NOT encrypted — anyone who opens it can read every password in your vault."),
+    el("p", {},
+      "Only make this file if you are moving your passwords somewhere else. Delete it as soon as you are finished, and empty the trash afterwards."),
+  );
+  root.append(warning);
+
+  const confirmBox = el("input", { type: "checkbox" }) as HTMLInputElement;
+  const exportBtn = button("Export the readable file", async () => {
+    const csv = exportCsv(session.listEntries());
+    const ok = await exportFile(EXPORT_FILENAME, utf8Encode(csv), "text/csv");
+    status.textContent = ok
+      ? `Saved as ${EXPORT_FILENAME}. Delete it as soon as you are done with it.`
+      : "Save cancelled — no file was made.";
+  }, "primary");
+  exportBtn.disabled = true;
+  confirmBox.addEventListener("change", () => {
+    exportBtn.disabled = !confirmBox.checked || entries.length === 0;
+  });
+  if (entries.length === 0) {
+    status.textContent = "Your vault has no passwords to export yet.";
+  }
+  root.append(
+    el("label", { class: "checkbox" }, confirmBox,
+      " I understand this file shows my passwords in plain text."),
+    el("div", { class: "action-stack" },
+      exportBtn,
+      button("Cancel", () => renderUnlocked())),
+    status,
+  );
   render(root);
   armAutoLock();
 }

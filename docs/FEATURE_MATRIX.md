@@ -1,6 +1,6 @@
 # Feature matrix — MyKey web client (PWA) + Android app
 
-Exact status of every feature, as of the 1.0.0 release
+Exact status of every feature, as of the 1.1.0 polish wave
 (2026-10-13). "Deferred" means deliberately not built yet, not
 broken. "Platform-blocked" means the platform cannot genuinely do
 it, the app says so in plain words, and a working fallback is
@@ -30,7 +30,8 @@ offered instead.
 | Password generator | Implemented | ≥ 16 characters (default 20), unbiased random selection, desktop's alphabet. |
 | TOTP sign-in codes | Implemented | Live code + countdown, RFC 6238, accepts raw secrets and otpauth:// values. |
 | Favourites, tags | Implemented | Favourites pin to the top; tags are plain text, comma-separated. |
-| Import from other password managers (CSV) | Deferred | Desktop imports exist; the web client never parses foreign plaintext in v1. |
+| Import from browsers (CSV) | Implemented | Chromium family (Chrome/Edge/Brave/Opera/Vivaldi/Arc/Google Password Manager) and Firefox exports are recognised by header signature; anything else gets a by-hand column mapping. Mirrors the desktop importer: (service, username) keys, same-password = duplicate (skipped), different password = conflict with a plain-language choice (keep mine / use the file's / keep both). The file is parsed locally and never uploaded; imported entries land encrypted in the vault. Other managers' formats (Bitwarden, 1Password, …) arrive through the generic mapping in this client; their dedicated parsers remain desktop-only for now. |
+| Export to CSV (readable file) | Implemented, deliberately gated | Same columns as the desktop exporter (Service, Username, Password, URL, Notes). There is no one-tap path: a warning screen states in plain words that the file is unencrypted and readable by anyone, and the export button stays disabled until the user ticks the understanding checkbox. An empty vault exports nothing. |
 
 ## Portability & sync
 
@@ -41,8 +42,9 @@ offered instead.
 | MKBAK backup — restore (recovery recipient) | Implemented | Full Python-path checks: source fingerprint recomputed + must match one the user supplies independently, Ed25519 signature verified, downgrade refused, older-than-last-restored warns. |
 | MKBAK backup — create a package | Deferred | Export requires an enrolled device identity, which the web client does not hold in v1; desktop creates packages. |
 | MKBAK backup — device-recipient restore | Deferred | Needs the receiving device's private key; the recovery path covers fresh-device restore in v1. |
-| Sync via a folder (your own cloud drive) | Implemented (Chromium) | File System Access API: pick a folder, the app reads/writes `vault.mykey` + timestamped snapshots. Permission is re-checked every use; nothing runs in the background. |
+| Sync via a folder (your own cloud drive) | Implemented (desktop Chromium) | File System Access API: pick a folder, the app reads/writes `vault.mykey` + timestamped snapshots. Permission is re-checked every use; nothing runs in the background. |
 | Sync on Firefox / Safari | Platform-blocked, fallback offered | No File System Access API: use Download + Open-file. The app says this plainly and never pretends to folder-sync. |
+| Sync in the Android app | Implemented as an explicit file flow (verified behaviour) | The Android WebView provides no directory picker, so folder sync is never offered there — the capability is detected at runtime and the decision is unit-tested (`folderSyncOffered`: native ⇒ never). Instead, Settings labels the real flow in plain words: "Download my vault file" saves the encrypted vault into the user's cloud app via the share sheet; "Load a vault file from my cloud app" brings a newer copy back (different-vault loads ask first, then the app locks and the user unlocks the loaded copy). The app cannot silently sync on Android and does not claim to. |
 | WebDAV sync | Deferred | The desktop covers WebDAV; the web client ships folder flows only in v1. |
 | Any server, account, telemetry | Never | There is no MyKey server. CSP `connect-src 'none'` makes the client incapable of network calls. |
 
@@ -57,3 +59,6 @@ offered instead.
 | iOS app | Deferred | The PWA works in Safari (with the download/upload flows); a Capacitor iOS build is a later wave. |
 | Auto-lock (quiet timer + when hidden) | Implemented | Defaults: 5 minutes, and lock when hidden — both changeable. |
 | Accessibility | Implemented | Labels, focus management, aria-live status, contrast-checked palette, large targets, reduced-motion support. |
+| Device display defaults | Implemented | First run follows the device: OS light/dark (reacts live to OS changes), OS font scaling (all sizes relative; the Android shell sets no WebView text-zoom override, so the system font scale applies), reduced-motion honoured. Any skin choice overrides until "Use device settings" is picked again. |
+| Skins (themes) | Implemented | Settings → Appearance: Device (auto), Daylight, Midnight, Ocean, Forest, Dune, Chakra, High Contrast. Token-based — every colour comes from the active palette; picking applies instantly (the picker is its own live preview) and persists on-device. Every skin passes the WCAG AA contrast gate in CI (tests/themes.test.ts). Palette rationale: docs/DESIGN.md. |
+| Password strength meter | Implemented | Five segments in the theme's meter ramp plus a word (Very weak → Excellent) — never colour alone. The Chakra skin's ramp follows the seven-chakra spectrum. |
