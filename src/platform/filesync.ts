@@ -1,0 +1,152 @@
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Copyright (c) 2026 2351485 ALBERTA INC.
+
+/** File flows, honest about what each platform can really do:
+ *
+ * - Sync folder: the File System Access API (Chromium desktop /
+ *   Android Chrome) lets the user pick a folder — e.g. inside their
+ *   own cloud drive's local folder — and the app reads/writes
+ *   "vault.mykey" there. The handle is user-granted and revocable;
+ *   permission is re-checked on every use. Where the API does not
+ *   exist, the app offers explicit download/upload instead and says
+ *   so. There is no background sync and no server: the vault file is
+ *   ciphertext everywhere it goes, matching the desktop's
+ *   zero-knowledge sync design.
+ * - Export on the Android app writes the file to the app cache and
+ *   opens the system share sheet; on the web it downloads.
+ */
+
+import { Capacitor } from "@capacitor/core";
+import { Directory, Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
+import { VAULT_FILENAME } from "../brand.js";
+import { b64encode, utf8Decode } from "../vault/encoding.js";
+
+export function syncFolderSupported(): boolean {
+  return (
+    !Capacitor.isNativePlatform() &&
+    typeof (window as any).showDirectoryPicker === "function"
+  );
+}
+
+export async function chooseSyncFolder(): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    return await (window as any).showDirectoryPicker({ id: "mykey-sync" });
+  } catch {
+    return null; // user cancelled
+  }
+}
+
+async function ensurePermission(
+  handle: FileSystemDirectoryHandle,
+  mode: "read" | "readwrite",
+): Promise<boolean> {
+  const anyHandle = handle as any;
+  if (typeof anyHandle.queryPermission !== "function") return true;
+  const opts = { mode };
+  if ((await anyHandle.queryPermission(opts)) === "granted") return true;
+  return (await anyHandle.requestPermission(opts)) === "granted";
+}
+
+export async function syncFolderPush(
+  handle: FileSystemDirectoryHandle,
+  bytes: Uint8Array,
+): Promise<boolean> {
+  if (!(await ensurePermission(handle, "readwrite"))) return false;
+  const fileHandle = await handle.getFileHandle(VAULT_FILENAME, { create: true });
+  const writable = await (fileHandle as any).createWritable();
+  await writable.write(bytes as BufferSource);
+  await writable.close();
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const snap = await handle.getFileHandle(`vault-backup-${stamp}.mykey`, { create: true });
+  const snapWritable = await (snap as any).createWritable();
+  await snapWritable.write(bytes as BufferSource);
+  await snapWritable.close();
+  return true;
+}
+
+export async function syncFolderPull(
+  handle: FileSystemDirectoryHandle,
+): Promise<Uint8Array | null> {
+  if (!(await ensurePermission(handle, "read"))) return null;
+  try {
+    const fileHandle = await handle.getFileHandle(VAULT_FILENAME);
+    const file = await fileHandle.getFile();
+    return new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return null; // no vault file in the folder yet
+  }
+}
+
+/** Save bytes somewhere the user controls: share sheet on native,
+ * download on web. Returns false when the user cancels the share. */
+export async function exportFile(
+  filename: string,
+  bytes: Uint8Array,
+  mime = "application/octet-stream",
+): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    const written = await Filesystem.writeFile({
+      path: filename,
+      directory: Directory.Cache,
+      data: b64encode(bytes),
+    });
+    try {
+      await Share.share({
+        title: filename,
+        text: "MyKey encrypted vault file — it is useless without your master password.",
+        files: [written.uri],
+        dialogTitle: "Save your vault file",
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const blob = new Blob([bytes as BlobPart], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return true;
+}
+
+/** Read a file the user picks (any platform). */
+export function pickFile(): Promise<{ name: string; bytes: Uint8Array } | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".mykey,.mykeybak,application/json";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      resolve({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+    });
+    input.addEventListener("cancel", () => resolve(null));
+    input.click();
+  });
+}
+
+export function looksLikeJson(bytes: Uint8Array): boolean {
+  try {
+    JSON.parse(utf8Decode(bytes));
+    return true;
+  } catch {
+    return false;
+  }
+}

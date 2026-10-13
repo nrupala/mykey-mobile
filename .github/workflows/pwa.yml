@@ -1,0 +1,80 @@
+name: PWA — test, cross-check, build
+
+# The web client is the single source for the PWA and the Android
+# app. This workflow proves, on every change:
+#   1. the committed interop fixtures still match what the PYTHON
+#      implementation generates (fixture drift = failure);
+#   2. the TypeScript client opens the Python Vault v3 / MKBAK
+#      fixtures and the Python implementation opens the files the
+#      TypeScript client writes (the two-way interop gate);
+#   3. the PWA builds and its e2e smoke passes, including the
+#      offline-after-first-visit flow.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pwa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the web client
+        uses: actions/checkout@v4
+
+      - name: Check out the Python engine (interop oracle)
+        uses: actions/checkout@v4
+        with:
+          repository: nrupala/mykey
+          path: mykey-py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python oracle dependencies
+        run: |
+          python -m venv /tmp/oracle-venv
+          /tmp/oracle-venv/bin/pip install --no-cache-dir cryptography argon2-cffi
+
+      - name: Regenerate fixtures with the Python implementation
+        # Fixtures are randomized per generation (uuids, salts), so
+        # freshness is proven by regenerating them here and running
+        # the full suite against the fresh files — any format drift
+        # between the Python engine and this client fails the run.
+        run: MYKEY_PY_DIR=$GITHUB_WORKSPACE/mykey-py /tmp/oracle-venv/bin/python scripts/make_fixtures.py
+
+      - name: Install, typecheck, unit + interop tests
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: Reverse gate — Python opens what TypeScript wrote
+        env:
+          MYKEY_PY_DIR: ${{ github.workspace }}/mykey-py
+        run: /tmp/oracle-venv/bin/python scripts/crosscheck_python.py
+
+      - name: Build the PWA
+        run: npm run build
+
+      - name: E2E smoke (offline load, fixture unlock, CRUD, auto-lock)
+        run: |
+          npx playwright install --with-deps chromium-headless-shell
+          npm run e2e
+
+      - name: Upload the built PWA
+        uses: actions/upload-artifact@v4
+        with:
+          name: mykey-pwa-dist
+          path: dist
+          if-no-files-found: error

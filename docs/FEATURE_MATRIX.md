@@ -1,0 +1,59 @@
+# Feature matrix — MyKey web client (PWA) + Android app
+
+Exact status of every feature, as of the 1.0.0 release
+(2026-10-13). "Deferred" means deliberately not built yet, not
+broken. "Platform-blocked" means the platform cannot genuinely do
+it, the app says so in plain words, and a working fallback is
+offered instead.
+
+## Vault
+
+| Feature | Status | Notes |
+|---|---|---|
+| Create a new Vault v3 vault | Implemented | Same format, KDF defaults and limits as the desktop engine. Master password ≥ 12 characters. |
+| Open Vault v3 by master password | Implemented | Proven against Python-generated fixtures (interop gate). |
+| Open by recovery phrase (BIP-39) | Implemented | 12/24 words, checksum-validated; includes the desktop's backup-recipient backfill on unlock. |
+| Set up / replace recovery phrase | Implemented | Phrase shown once, behind a written-down confirmation. |
+| Change master password | Implemented | Re-wraps the master slot; recovery phrase unaffected. |
+| Vault v1 / v2 files | Deferred (by design) | The client refuses them with instructions to open once in the desktop app, which performs the migration. Nothing is half-migrated on a phone browser. |
+| Audit-sealed desktop vaults | Implemented with a stated limit | Vaults whose core carries a desktop audit seal open normally and stay byte-compatible; the app shows a notice that it cannot verify the audit log (a sidecar file the web client does not carry). The seal itself is preserved verbatim on every save. |
+| Agent bundles | Maintained silently | Desktop-enrolled agents keep working on files this client saves: bundles are rebuilt on every save exactly as the desktop engine rebuilds them (proven by the Python cross-check — scope is still enforced after a TS save). Agent management UI is deferred. |
+| Agent-submitted "pending" entries | Preserved, not shown | Pending objects round-trip verbatim. Approving them is a desktop task in v1. |
+
+## Records
+
+| Feature | Status | Notes |
+|---|---|---|
+| List, search | Implemented | Search covers service, username, website, notes, tags. |
+| View / copy (username, password, TOTP) | Implemented | Passwords masked until "Show"; clipboard auto-clears. |
+| Add / edit / delete | Implemented | Delete asks for a second tap — no silent destructive action. Duplicate (service, username) refused, like the desktop. |
+| Password generator | Implemented | ≥ 16 characters (default 20), unbiased random selection, desktop's alphabet. |
+| TOTP sign-in codes | Implemented | Live code + countdown, RFC 6238, accepts raw secrets and otpauth:// values. |
+| Favourites, tags | Implemented | Favourites pin to the top; tags are plain text, comma-separated. |
+| Import from other password managers (CSV) | Deferred | Desktop imports exist; the web client never parses foreign plaintext in v1. |
+
+## Portability & sync
+
+| Feature | Status | Notes |
+|---|---|---|
+| Export the encrypted vault file | Implemented | Download on web, system share sheet on Android. |
+| Import a vault file | Implemented | Replaces the device copy only after explicit confirmation when it is a different vault. |
+| MKBAK backup — restore (recovery recipient) | Implemented | Full Python-path checks: source fingerprint recomputed + must match one the user supplies independently, Ed25519 signature verified, downgrade refused, older-than-last-restored warns. |
+| MKBAK backup — create a package | Deferred | Export requires an enrolled device identity, which the web client does not hold in v1; desktop creates packages. |
+| MKBAK backup — device-recipient restore | Deferred | Needs the receiving device's private key; the recovery path covers fresh-device restore in v1. |
+| Sync via a folder (your own cloud drive) | Implemented (Chromium) | File System Access API: pick a folder, the app reads/writes `vault.mykey` + timestamped snapshots. Permission is re-checked every use; nothing runs in the background. |
+| Sync on Firefox / Safari | Platform-blocked, fallback offered | No File System Access API: use Download + Open-file. The app says this plainly and never pretends to folder-sync. |
+| WebDAV sync | Deferred | The desktop covers WebDAV; the web client ships folder flows only in v1. |
+| Any server, account, telemetry | Never | There is no MyKey server. CSP `connect-src 'none'` makes the client incapable of network calls. |
+
+## Platform
+
+| Feature | Status | Notes |
+|---|---|---|
+| Installable PWA, full offline after first visit | Implemented | Service-worker precache of the whole client; e2e-proven offline. |
+| Android app (Capacitor, same build) | Implemented | Debug APK + unsigned release AAB from CI (see README — signing section). No INTERNET permission; Android cloud backup of app data disabled. |
+| Fingerprint / face unlock (Android) | Implemented | Opt-in wrapped slot: a random wrap key lives in Android Keystore-backed, biometric-gated storage and unwraps the vault through its normal cryptographic path. Not a plaintext backdoor; turning it off deletes slot + key. Verify on a real device: CI cannot exercise biometrics. |
+| Biometric unlock in the pure web PWA | Not offered (security decision) | A wrap key in web storage would be script-readable — a quiet backdoor. Password/phrase only on the web. |
+| iOS app | Deferred | The PWA works in Safari (with the download/upload flows); a Capacitor iOS build is a later wave. |
+| Auto-lock (quiet timer + when hidden) | Implemented | Defaults: 5 minutes, and lock when hidden — both changeable. |
+| Accessibility | Implemented | Labels, focus management, aria-live status, contrast-checked palette, large targets, reduced-motion support. |
