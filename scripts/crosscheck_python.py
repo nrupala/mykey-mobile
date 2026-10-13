@@ -17,7 +17,10 @@ if not PY_SRC:
 sys.path.insert(0, PY_SRC)
 
 import agents  # noqa: E402
+import backup_pkg  # noqa: E402
+import devices  # noqa: E402
 import mykey  # noqa: E402
+import pairings as pairings_mod  # noqa: E402
 
 FIX = ROOT / "tests" / "fixtures"
 OUT = FIX / "out"
@@ -125,6 +128,95 @@ def device_slot_preserved():
 
 
 check("TS-created vault carries a recovery slot", device_slot_preserved)
+
+
+# ---------------------------------------------------------------------
+# Blob wave: the TS-exported MKBAK v2 package must open in Python
+# via recovery (phrase + backup code), via the device key, and via
+# the pairing key — and phrase-only must be REFUSED (two-factor).
+# ---------------------------------------------------------------------
+
+def _ts_export_info():
+    return json.loads((OUT / "ts-export.json").read_text())
+
+
+def _stage_pkg():
+    return stage("ts-export.mykeybak",
+                 (OUT / "ts-export.mykeybak").read_bytes())
+
+
+def ts_export_recovery_two_factor():
+    info = _ts_export_info()
+    pkg = _stage_pkg()
+    try:
+        backup_pkg.import_package(
+            pkg, str(TMP / "imp-none.mykey"),
+            recovery_phrase=expected["phrase"],
+            expect_fingerprint=info["source_fingerprint"])
+    except backup_pkg.BackupRefused:
+        pass
+    else:
+        raise AssertionError(
+            "phrase-only import of a TS v2 package was not refused")
+    result = backup_pkg.import_package(
+        pkg, str(TMP / "imp-rec.mykey"),
+        recovery_phrase=expected["phrase"],
+        backup_code=info["backup_code"],
+        expect_fingerprint=info["source_fingerprint"])
+    assert result["via"] == "recovery", result
+    assert result["package_version"] == 2 and result["legacy"] is False
+    v = open_py(str(TMP / "imp-rec.mykey"))
+    assert len(v.list_entries()) == 3
+
+
+check("python imports the TS v2 package via phrase + backup code "
+      "(and refuses phrase-only)", ts_export_recovery_two_factor)
+
+
+def ts_export_device():
+    info = _ts_export_info()
+    pkg = _stage_pkg()
+    keys = stage("ts-device-keys.json",
+                 (OUT / "ts-device-keys.json").read_bytes())
+    os.chmod(keys, 0o600)
+    ident = devices.DeviceIdentity.load(keys)
+    result = backup_pkg.import_package(
+        pkg, str(TMP / "imp-dev.mykey"), identity=ident,
+        expect_fingerprint=info["source_fingerprint"])
+    assert result["via"] == f"device:{ident.device_id}", result
+
+
+check("python imports the TS v2 package via the device key",
+      ts_export_device)
+
+
+def ts_export_pairing():
+    import base64
+    info = _ts_export_info()
+    pkg = _stage_pkg()
+    priv = base64.b64decode(info["pairing_priv_b64"])
+    result = backup_pkg.import_package(
+        pkg, str(TMP / "imp-pair.mykey"), pairing_priv=priv,
+        expect_fingerprint=info["source_fingerprint"])
+    assert result["via"] == f"pairing:{info['pairing_target_id']}", result
+
+
+check("python imports the TS v2 package via the pairing key",
+      ts_export_pairing)
+
+
+def ts_paired_registry():
+    info = _ts_export_info()
+    v = open_py(stage("paired.mykey", (OUT / "paired.mykey").read_bytes()))
+    rec = v._pairings[info["pairing_target_id"]]
+    assert rec["fingerprint"] == info["pairing_fingerprint"], rec
+    assert rec["enabled"] and not rec["revoked_at"]
+    assert info["pairing_target_id"] in pairings_mod.active_pairings(
+        v, scope="export")
+
+
+check("python reads the TS-enrolled pairing registry from the vault core",
+      ts_paired_registry)
 
 if failures:
     print(f"\n{len(failures)} cross-check(s) FAILED")

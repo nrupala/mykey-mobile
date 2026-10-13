@@ -21,12 +21,29 @@
 import { BRAND, DEVICE_SLOT_ID, VAULT_FILENAME } from "../brand.js";
 import {
   BackupRefusedError,
+  exportPackage,
+  importPackageWithDevice,
   importPackageWithRecovery,
   inspectPackage,
+  type ExportPackageResult,
 } from "../vault/backup.js";
+import {
+  DeviceIdentity,
+  PairingTargetIdentity,
+  verifyDeviceCard,
+} from "../vault/device.js";
+import {
+  pairingBlockReason,
+  validateScopes,
+  verifyPairingPayload,
+  type PairingRecord,
+  type PairingScope,
+  type PairingType,
+} from "../vault/pairings.js";
 import {
   b64decode,
   b64encode,
+  nowSeconds,
   randomBytes,
   utf8Decode,
   utf8Encode,
@@ -159,6 +176,10 @@ interface AppState {
   storedBytes: Uint8Array | null;
   session: VaultSession | null;
   syncHandle: FileSystemDirectoryHandle | null;
+  /** Pairing target the sync folder is tied to (blob wave). When
+   *  set, folder saves/loads are allowed only while that pairing
+   *  is active with the matching permission. */
+  syncTargetId: string | null;
   autoLockTimer: number | null;
   totpTimer: number | null;
   clipTimer: number | null;
@@ -169,6 +190,7 @@ const state: AppState = {
   storedBytes: null,
   session: null,
   syncHandle: null,
+  syncTargetId: null,
   autoLockTimer: null,
   totpTimer: null,
   clipTimer: null,
@@ -204,9 +226,21 @@ async function persist(): Promise<void> {
   const bytes = await state.session.serialize();
   state.storedBytes = bytes;
   await store.setVaultBytes(bytes);
-  if (state.syncHandle) {
+  if (state.syncHandle && !syncGate("push")) {
     await syncFolderPush(state.syncHandle, bytes).catch(() => false);
   }
+}
+
+/** The pairing gate for folder sync: when the folder is tied to a
+ *  pairing target, saves/loads run only while that pairing is on,
+ *  unexpired, and holds the matching permission. Returns a plain
+ *  reason when blocked, null when allowed (or untied). */
+function syncGate(scope: PairingScope): string | null {
+  if (!state.syncTargetId || !state.session) return null;
+  const rec = state.session.pairingsRegistry()[state.syncTargetId] as
+    | PairingRecord
+    | undefined;
+  return pairingBlockReason(rec ?? null, scope, state.syncTargetId);
 }
 
 function armAutoLock(): void {
@@ -547,18 +581,55 @@ function renderRestore(): void {
   root.append(el("h2", {}, "Restore from a backup package"));
   root.append(
     el("p", { class: "lede" },
-      "A backup package (ends in .mykeybak) restores your vault using your recovery phrase. For your protection, also type the source fingerprint you recorded when the backup was made — a package cannot vouch for itself."),
+      "A backup package (ends in .mykeybak) restores your vault. If this device was enrolled in the vault, it can restore directly. Otherwise use your recovery phrase — and for newer backups, the backup code too: the phrase and the code are both needed, either one alone opens nothing. Also type the source fingerprint you recorded when the backup was made — a package cannot vouch for itself."),
   );
   const error = el("p", { class: "alert alert-error hidden", role: "alert" });
   const status = el("p", { class: "status", "aria-live": "polite" });
   let pkgBytes: Uint8Array | null = null;
+  let identity: DeviceIdentity | null = null;
+  void store.getDeviceIdentity().then((json) => {
+    if (!json) return;
+    try {
+      identity = DeviceIdentity.parse(json);
+    } catch {
+      identity = null;
+    }
+  });
   const info = el("div", { class: "card hidden" });
   const phrase = el("textarea", {
     class: "text-input", rows: "3", autocomplete: "off",
     "aria-label": "Recovery phrase (12 words)",
   }) as HTMLTextAreaElement;
+  const code = el("textarea", {
+    class: "text-input", rows: "2", autocomplete: "off",
+    "aria-label": "Backup code (8 words)",
+  }) as HTMLTextAreaElement;
+  const codeField = field("Backup code (8 words — needed for newer backups)", code);
+  codeField.classList.add("hidden");
   const fingerprint = input({ autocomplete: "off", placeholder: "e.g. 48aa:1618:ba56:…" });
   const pw = input({ type: "password", autocomplete: "current-password" });
+  const deviceRestore = button("Restore with this device", async () => {});
+  deviceRestore.classList.add("hidden");
+
+  const finishRestore = async (
+    result: Awaited<ReturnType<typeof importPackageWithRecovery>>,
+    meta: ReturnType<typeof inspectPackage>,
+  ) => {
+    const lastSeen = await store.getLastBackupAt();
+    if (lastSeen !== undefined && meta.createdAt < lastSeen) {
+      if (!window.confirm(
+        "This backup is older than one you already restored on this device. Restore it anyway? Anything added since then won't be in it.",
+      )) return;
+    }
+    const session = await VaultSession.openWithPassword(result.vaultBytes, pw.value);
+    state.storedBytes = result.vaultBytes;
+    await store.setVaultBytes(result.vaultBytes);
+    await store.setLastBackupAt(meta.createdAt);
+    phrase.value = "";
+    code.value = "";
+    pw.value = "";
+    await enterVault(session);
+  };
 
   const form = el("form", { class: "form" });
   form.append(
@@ -569,26 +640,51 @@ function renderRestore(): void {
       try {
         const meta = inspectPackage(picked.bytes);
         pkgBytes = picked.bytes;
-        info.replaceChildren(
+        const lines = [
           el("p", {}, `From device: ${meta.sourceDeviceId}`),
           el("p", {}, `Package fingerprint: ${meta.sourceFingerprint}`),
           el("p", {}, meta.signatureValid
             ? "Package signature: valid"
             : "Package signature: INVALID — do not trust this package."),
-        );
+        ];
+        if (meta.legacy) {
+          lines.push(el("p", {}, "This is an older backup: the recovery phrase alone opens it."));
+        } else {
+          lines.push(el("p", {}, "This backup needs your recovery phrase AND its backup code."));
+        }
+        info.replaceChildren(...lines);
         info.classList.remove("hidden");
+        codeField.classList.toggle("hidden", meta.legacy);
+        const mine = identity && meta.recipients.some(
+          (r) => r.type === "device" && r.deviceId === identity!.deviceId,
+        );
+        deviceRestore.classList.toggle("hidden", !mine);
       } catch (err) {
         error.textContent = errorText(err);
         error.classList.remove("hidden");
       }
     }),
     info,
+    deviceRestore,
     field("Your recovery phrase", phrase),
+    codeField,
     field("Source fingerprint (from when the backup was made)", fingerprint),
     field("Master password for the restored vault", pw),
     error,
     status,
   );
+  deviceRestore.addEventListener("click", async () => {
+    error.classList.add("hidden");
+    if (!pkgBytes || !identity) return;
+    try {
+      const meta = inspectPackage(pkgBytes);
+      const result = await importPackageWithDevice(pkgBytes, identity, fingerprint.value);
+      await finishRestore(result, meta);
+    } catch (err) {
+      error.textContent = errorText(err);
+      error.classList.remove("hidden");
+    }
+  });
   const submit = button("Restore my vault", async () => {}, "primary");
   submit.type = "submit";
   form.append(submit, button("Back", () => void renderLocked()));
@@ -601,21 +697,14 @@ function renderRestore(): void {
       return;
     }
     try {
-      const lastSeen = await store.getLastBackupAt();
-      const result = await importPackageWithRecovery(pkgBytes, phrase.value, fingerprint.value);
       const meta = inspectPackage(pkgBytes);
-      if (lastSeen !== undefined && meta.createdAt < lastSeen) {
-        if (!window.confirm(
-          "This backup is older than one you already restored on this device. Restore it anyway? Anything added since then won't be in it.",
-        )) return;
-      }
-      const session = await VaultSession.openWithPassword(result.vaultBytes, pw.value);
-      state.storedBytes = result.vaultBytes;
-      await store.setVaultBytes(result.vaultBytes);
-      await store.setLastBackupAt(meta.createdAt);
-      phrase.value = "";
-      pw.value = "";
-      await enterVault(session);
+      const result = await importPackageWithRecovery(
+        pkgBytes,
+        phrase.value,
+        fingerprint.value,
+        code.value.trim() ? code.value : undefined,
+      );
+      await finishRestore(result, meta);
     } catch (err) {
       error.textContent = errorText(err);
       error.classList.remove("hidden");
@@ -623,6 +712,395 @@ function renderRestore(): void {
   });
   root.append(form);
   render(root);
+}
+
+// ------------------------------------------------------------------
+// Backup packages + pairing (blob wave)
+// ------------------------------------------------------------------
+
+async function loadDeviceIdentity(): Promise<DeviceIdentity | null> {
+  const json = await store.getDeviceIdentity().catch(() => undefined);
+  if (!json) return null;
+  try {
+    return DeviceIdentity.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+async function ensureDeviceIdentity(): Promise<DeviceIdentity> {
+  const existing = await loadDeviceIdentity();
+  if (existing) return existing;
+  const ident = DeviceIdentity.generate(isNativeApp() ? "This phone" : "This browser");
+  await store.setDeviceIdentity(ident.serialize());
+  return ident;
+}
+
+/** Enroll this device in the open vault if it isn't already, so its
+ *  own backups always have a device recipient (desktop rule). */
+async function ensureEnrolled(session: VaultSession, identity: DeviceIdentity): Promise<void> {
+  const existing = session.devicesRegistry()[identity.deviceId];
+  if (existing && !existing.revoked_at) return;
+  if (existing?.revoked_at) {
+    throw new BackupRefusedError(
+      "This device was revoked in this vault, so it can't make backups the vault will trust. Remove its keys in Backup targets & pairing, then set it up fresh.",
+    );
+  }
+  const record = verifyDeviceCard(identity.card() as unknown as Record<string, unknown>);
+  session.putDeviceRecord({ ...record, enrolled_at: nowSeconds(), revoked_at: null });
+  await persist();
+}
+
+async function doExportBackup(): Promise<void> {
+  const session = state.session!;
+  const pub = session.backupRecoveryPub();
+  if (!pub) {
+    throw new BackupRefusedError(
+      "Set up a recovery phrase first — every backup package needs one, so you can still recover after losing every device.",
+    );
+  }
+  const identity = await ensureDeviceIdentity();
+  await ensureEnrolled(session, identity);
+  const result = await exportPackage({
+    vaultBytes: state.storedBytes ?? (await session.serialize()),
+    vaultId: session.vaultId,
+    source: identity,
+    devices: session.devicesRegistry(),
+    pairings: session.pairingsRegistry() as Record<string, PairingRecord>,
+    backupRecoveryPub: pub,
+  });
+  renderBackupCode(result, identity);
+}
+
+function renderBackupCode(result: ExportPackageResult, identity: DeviceIdentity): void {
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Save your backup code"));
+  root.append(
+    el("p", { class: "lede" },
+      "Your backup package is ready. This code is the second key to it: outside the app, the backup opens only with your recovery phrase AND this code together. Either one alone opens nothing."),
+    el("p", {},
+      "Write this code down and keep it somewhere DIFFERENT from your recovery phrase. It is shown once — MyKey does not keep a copy."),
+  );
+  const grid = el("ol", { class: "phrase-grid" });
+  for (const word of result.backupCode.split(" ")) {
+    grid.append(el("li", {}, word));
+  }
+  root.append(grid);
+  const status = el("p", { class: "status", "aria-live": "polite" });
+  root.append(button("Copy the code", () => void copySecret(result.backupCode, "Backup code", status)));
+
+  const who = el("div", { class: "card" });
+  who.append(el("p", {}, "This backup can be opened by:"));
+  const list = el("ul", {});
+  for (const label of result.recipientLabels) {
+    list.append(el("li", {},
+      label === "recovery"
+        ? "Your recovery phrase + this backup code"
+        : label === `device:${identity.deviceId}`
+          ? "This device"
+          : label.startsWith("device:")
+            ? "Another enrolled device"
+            : "A paired backup target"));
+  }
+  who.append(list);
+  root.append(who);
+
+  const savedBox = el("input", { type: "checkbox" }) as HTMLInputElement;
+  const saveBtn = button("Save the backup package", async () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const ok = await exportFile(`mykey-backup-${stamp}.mykeybak`, result.packageBytes);
+    status.textContent = ok
+      ? "Backup package saved. Keep it wherever you keep important files — without the phrase and code it opens nothing."
+      : "Save cancelled — use the button again when you're ready.";
+  }, "primary") as HTMLButtonElement;
+  saveBtn.disabled = true;
+  savedBox.addEventListener("change", () => {
+    saveBtn.disabled = !savedBox.checked;
+  });
+  root.append(
+    el("label", { class: "checkbox" }, savedBox,
+      " I saved this code somewhere different from my recovery phrase"),
+    saveBtn,
+    status,
+    button("Back to my vault", () => renderUnlocked()),
+  );
+  render(root);
+}
+
+function pairingTypeName(t: string): string {
+  return t === "cloud-folder" ? "Cloud folder" : t === "export" ? "Backup target" : "Device";
+}
+
+function scopeName(s: string): string {
+  return s === "push" ? "Save to it" : s === "pull" ? "Load from it" : "Receive backups";
+}
+
+function pairingStateName(rec: PairingRecord): string {
+  if (rec.revoked_at) return "Revoked";
+  if (!rec.enabled) return "Turned off";
+  if (rec.expires_at && nowSeconds() > rec.expires_at) return "Expired";
+  return "Active";
+}
+
+async function renderPairings(): Promise<void> {
+  const session = state.session!;
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Backup targets & pairing"));
+  root.append(
+    el("p", { class: "lede" },
+      "Pairing decides which folders and targets your encrypted backups and sync files may go to. Nothing is ever sent to an unpaired or revoked target. Only you can pair or revoke — from this screen, while your vault is open."),
+  );
+  const status = el("p", { class: "status", "aria-live": "polite" });
+  const identity = await loadDeviceIdentity();
+
+  // --- This device -------------------------------------------------
+  const deviceCard = el("section", { class: "card" });
+  deviceCard.append(el("h3", {}, "This device"));
+  if (!identity) {
+    deviceCard.append(
+      el("p", {}, "This device has no backup identity yet. Set one up so backups you make can be restored here without the phrase and code."),
+      button("Set up this device", async () => {
+        await ensureDeviceIdentity();
+        await renderPairings();
+      }, "primary"),
+    );
+  } else {
+    const record = session.devicesRegistry()[identity.deviceId] as
+      | { revoked_at?: number | null }
+      | undefined;
+    deviceCard.append(
+      el("p", {}, `Name: ${identity.label || "This device"}`),
+      el("p", {}, `Fingerprint: ${identity.fingerprint}`),
+    );
+    if (record?.revoked_at) {
+      deviceCard.append(el("p", { class: "alert alert-error" },
+        "This device was revoked in this vault. Its old backups stay as they are, but it gets no new ones."));
+    } else if (record) {
+      deviceCard.append(el("p", {}, "Enrolled in this vault: this device can restore this vault's backups directly."));
+    } else {
+      deviceCard.append(
+        el("p", {}, "Not enrolled in this vault yet."),
+        button("Add this device to this vault", async () => {
+          try {
+            await ensureEnrolled(session, identity);
+            status.textContent = "This device is enrolled. New backups will include it.";
+            await renderPairings();
+          } catch (err) {
+            status.textContent = errorText(err);
+          }
+        }, "primary"),
+      );
+    }
+    deviceCard.append(button("Remove this device's keys from this device", async () => {
+      if (!window.confirm(
+        "Remove this device's backup keys? Backups already made stay valid for their other recipients, but this device won't be able to restore backups directly any more.",
+      )) return;
+      await store.clearDeviceIdentity();
+      status.textContent = "This device's keys were removed.";
+      await renderPairings();
+    }));
+  }
+  root.append(deviceCard);
+
+  // --- Paired targets ----------------------------------------------
+  const listCard = el("section", { class: "card" });
+  listCard.append(el("h3", {}, "Paired targets"));
+  const pairings = session.pairingsRegistry() as Record<string, PairingRecord>;
+  const ids = Object.keys(pairings).sort();
+  if (ids.length === 0) {
+    listCard.append(el("p", {}, "Nothing paired yet. Pair a target below."));
+  }
+  for (const id of ids) {
+    const rec = pairings[id]!;
+    const item = el("div", { class: "card" });
+    item.append(
+      el("p", {}, `${rec.label || id.slice(0, 8)} — ${pairingTypeName(rec.type)}`),
+      el("p", {}, `Fingerprint: ${rec.fingerprint}`),
+      el("p", {}, `Can: ${rec.scopes.map(scopeName).join(" · ")}`),
+      el("p", {}, `State: ${pairingStateName(rec)}`),
+    );
+    if (rec.expires_at) {
+      item.append(el("p", {}, `Expires: ${new Date(rec.expires_at * 1000).toLocaleDateString()}`));
+    }
+    const row = el("div", { class: "action-stack" });
+    if (!rec.revoked_at) {
+      row.append(button(rec.enabled ? "Turn off" : "Turn on", async () => {
+        session.putPairingRecord({ ...rec, enabled: !rec.enabled });
+        await persist();
+        await renderPairings();
+      }));
+      if (rec.type === "cloud-folder") {
+        row.append(button(
+          state.syncTargetId === id ? "Stop using for my sync folder" : "Use for my sync folder",
+          async () => {
+            if (state.syncTargetId === id) {
+              state.syncTargetId = null;
+              await store.clearSyncTargetId();
+              status.textContent = "Sync folder no longer tied to a pairing.";
+            } else {
+              state.syncTargetId = id;
+              await store.setSyncTargetId(id);
+              status.textContent =
+                "Sync folder tied to this pairing. Saves and loads run only while it is active — pick the folder itself in Settings.";
+            }
+            await renderPairings();
+          },
+        ));
+      }
+      row.append(button("Revoke", async () => {
+        if (!window.confirm(
+          "Revoke this pairing? The target gets no new backups and no sync access from now on. Backups already made stay openable by it — that can't be undone.",
+        )) return;
+        session.putPairingRecord({ ...rec, revoked_at: nowSeconds(), enabled: false });
+        if (state.syncTargetId === id) {
+          state.syncTargetId = null;
+          await store.clearSyncTargetId();
+        }
+        await persist();
+        status.textContent = "Pairing revoked.";
+        await renderPairings();
+      }));
+    }
+    item.append(row);
+    listCard.append(item);
+  }
+  root.append(listCard);
+
+  // --- Pair a new target --------------------------------------------
+  const addCard = el("section", { class: "card" });
+  addCard.append(el("h3", {}, "Pair a new target"));
+  addCard.append(el("p", {},
+    "The target shows a pairing code (text you can paste). Paste it here, check the fingerprint against the one the target shows, then pair it."));
+  const payloadBox = el("textarea", {
+    class: "text-input", rows: "4", autocomplete: "off",
+    "aria-label": "Pairing code from the target",
+  }) as HTMLTextAreaElement;
+  const preview = el("div", { class: "hidden" });
+  const scopeBoxes = new Map<PairingScope, HTMLInputElement>();
+  const scopeRow = el("div", {});
+  for (const scope of ["push", "pull", "export"] as PairingScope[]) {
+    const box = el("input", { type: "checkbox" }) as HTMLInputElement;
+    scopeBoxes.set(scope, box);
+    scopeRow.append(el("label", { class: "checkbox" }, box, ` ${scopeName(scope)}`));
+  }
+  const expiry = el("select", { class: "text-input" }) as HTMLSelectElement;
+  expiry.append(
+    el("option", { value: "0" }, "Never expires"),
+    el("option", { value: "30" }, "Expires in 30 days"),
+    el("option", { value: "365" }, "Expires in 1 year"),
+  );
+  let pending: Omit<PairingRecord, "scopes" | "enrolled_at" | "expires_at" | "enabled" | "revoked_at"> | null = null;
+  const confirmBtn = button("Pair this target", async () => {
+    if (!pending) return;
+    const chosen = [...scopeBoxes.entries()].filter(([, b]) => b.checked).map(([s]) => s);
+    try {
+      const scopes = validateScopes(chosen);
+      const existing = (session.pairingsRegistry() as Record<string, PairingRecord>)[pending.target_id];
+      if (existing?.revoked_at) {
+        status.textContent = "That target was revoked before and can't be paired again — it needs a fresh pairing code.";
+        return;
+      }
+      if (existing) {
+        status.textContent = "That target is already paired.";
+        return;
+      }
+      const days = Number(expiry.value);
+      session.putPairingRecord({
+        ...pending,
+        scopes,
+        enrolled_at: nowSeconds(),
+        expires_at: days > 0 ? nowSeconds() + days * 86400 : null,
+        enabled: true,
+        revoked_at: null,
+      });
+      await persist();
+      status.textContent = "Target paired. It will receive only what its permissions allow.";
+      await renderPairings();
+    } catch (err) {
+      status.textContent = errorText(err);
+    }
+  }, "primary") as HTMLButtonElement;
+  confirmBtn.disabled = true;
+  addCard.append(
+    field("Pairing code from the target", payloadBox),
+    button("Check the pairing code", () => {
+      try {
+        const parsed = JSON.parse(payloadBox.value) as Record<string, unknown>;
+        pending = verifyPairingPayload(parsed);
+        preview.replaceChildren(
+          el("p", {}, `Target: ${pending.label || pending.target_id.slice(0, 8)} (${pairingTypeName(pending.type)})`),
+          el("p", {}, `Fingerprint: ${pending.fingerprint}`),
+          el("p", {}, "Pair only if this fingerprint matches the one the target itself shows."),
+        );
+        preview.classList.remove("hidden");
+        scopeBoxes.get("push")!.checked = pending.type === "cloud-folder";
+        scopeBoxes.get("pull")!.checked = pending.type === "cloud-folder";
+        scopeBoxes.get("export")!.checked = pending.type !== "cloud-folder";
+        confirmBtn.disabled = false;
+      } catch (err) {
+        pending = null;
+        confirmBtn.disabled = true;
+        status.textContent = errorText(err);
+      }
+    }),
+    preview,
+    el("p", {}, "It may:"),
+    scopeRow,
+    field("How long the pairing lasts", expiry),
+    confirmBtn,
+  );
+  root.append(addCard);
+
+  // --- A target on this device ---------------------------------------
+  const targetCard = el("section", { class: "card" });
+  targetCard.append(el("h3", {}, "A target on this device"));
+  targetCard.append(el("p", {},
+    "Create a pairing target here — for example, so another of your devices can send backups to a folder this device manages. Give its pairing code to that device; it decides what to send."));
+  const targetLabel = input({ placeholder: "Name, e.g. Home folder" });
+  const targetType = el("select", { class: "text-input" }) as HTMLSelectElement;
+  targetType.append(
+    el("option", { value: "cloud-folder" }, "Cloud folder"),
+    el("option", { value: "export" }, "Backup target"),
+  );
+  targetCard.append(
+    field("Target name", targetLabel),
+    field("Target kind", targetType),
+    button("Create a target here", async () => {
+      const t = PairingTargetIdentity.generate(
+        targetType.value as PairingType,
+        targetLabel.value.trim() || "Target",
+      );
+      await store.setPairingTargetKeys(t.targetId, t.serialize());
+      await renderPairings();
+    }),
+  );
+  const keys = (await store.getPairingTargetKeys().catch(() => undefined)) ?? {};
+  for (const [id, json] of Object.entries(keys)) {
+    try {
+      const t = PairingTargetIdentity.parse(json);
+      const box = el("textarea", {
+        class: "text-input", rows: "4", readonly: "readonly",
+        "aria-label": `Pairing code for ${t.label}`,
+      }) as HTMLTextAreaElement;
+      box.value = JSON.stringify(t.payload());
+      targetCard.append(
+        el("p", {}, `${t.label} — ${pairingTypeName(t.targetType)}`),
+        el("p", {}, `Fingerprint: ${t.fingerprint}`),
+        box,
+        button("Copy the pairing code", () => void copySecret(box.value, "Pairing code", status)),
+        button("Remove this target's keys", async () => {
+          if (!window.confirm("Remove this target's keys from this device? Anything paired to it elsewhere keeps its record, but this target will no longer be able to open what it receives.")) return;
+          await store.deletePairingTargetKeys(id);
+          await renderPairings();
+        }),
+      );
+    } catch {
+      /* damaged entry — skip it */
+    }
+  }
+  root.append(targetCard, status, button("Back", () => renderUnlocked()));
+  render(root);
+  armAutoLock();
 }
 
 // ------------------------------------------------------------------
@@ -949,6 +1427,14 @@ function settingsPanel(): HTMLElement {
     button(session.hasRecovery() ? "Replace my recovery phrase" : "Set up a recovery phrase",
       () => renderPhraseSetup(session, false)),
     button("Change master password", () => renderChangeMaster()),
+    button("Save a backup package", async () => {
+      try {
+        await doExportBackup();
+      } catch (err) {
+        status.textContent = errorText(err);
+      }
+    }),
+    button("Backup targets & pairing", () => void renderPairings()),
     button("Appearance — colours and skins", () => renderAppearance()),
     button("Import passwords from a browser file", () => renderImportCsv()),
     button("Export passwords as a readable file (CSV)", () => renderExportCsv()),
@@ -964,6 +1450,11 @@ function settingsPanel(): HTMLElement {
             state.syncHandle = handle;
             await store.setSyncDirHandle(handle);
           }
+          const blocked = syncGate("push");
+          if (blocked) {
+            status.textContent = blocked;
+            return;
+          }
           const ok = await syncFolderPush(state.syncHandle, state.storedBytes ?? (await session.serialize()));
           status.textContent = ok
             ? "Vault saved to your folder. Your cloud app carries the encrypted file; MyKey itself never connects anywhere."
@@ -972,6 +1463,11 @@ function settingsPanel(): HTMLElement {
       button("Load the vault from my sync folder", async () => {
         if (!state.syncHandle) {
           status.textContent = "Choose a sync folder first (button above).";
+          return;
+        }
+        const blockedPull = syncGate("pull");
+        if (blockedPull) {
+          status.textContent = blockedPull;
           return;
         }
         const bytes = await syncFolderPull(state.syncHandle);
@@ -1049,7 +1545,7 @@ function settingsPanel(): HTMLElement {
 
   panel.append(actions, status);
   panel.append(
-    el("p", { class: "hint" }, `${BRAND.productName} ${"2.1.0"} · ${BRAND.vendor}`),
+    el("p", { class: "hint" }, `${BRAND.productName} ${"2.2.0"} · ${BRAND.vendor}`),
     el("p", { class: "hint" }, BRAND.attribution),
   );
   return panel;
@@ -1405,6 +1901,7 @@ export async function boot(): Promise<void> {
   state.settings = await store.getSettings();
   state.storedBytes = (await store.getVaultBytes()) ?? null;
   state.syncHandle = (await store.getSyncDirHandle().catch(() => undefined)) ?? null;
+  state.syncTargetId = (await store.getSyncTargetId().catch(() => undefined)) ?? null;
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden" && state.session && state.settings.lockOnHide) {

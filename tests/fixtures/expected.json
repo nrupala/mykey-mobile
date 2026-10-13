@@ -1,7 +1,7 @@
 {
  "password": "Correct-Horse-2026!",
  "phrase": "legal winner thank year wave sausage worth useful legal winner thank yellow",
- "vault_id": "35df51f3fd804ffea50905bd7256846d",
+ "vault_id": "3b008f873ff3488b877b5dc3fabcc7e7",
  "entries": [
   {
    "service": "github",
@@ -44,12 +44,20 @@
   "at_1111111109": "081804"
  },
  "backup": {
-  "source_fingerprint": "48aa:1618:ba56:4049:7542:a9aa:0591:465a",
-  "package_file": "fixture.mykeybak"
+  "source_fingerprint": "aa71:2371:89ab:ee38:77df:1996:483d:a3bf",
+  "package_file": "fixture.mykeybak",
+  "backup_code": "service page forum gas trash scale slogan know",
+  "legacy_file": "fixture-v1.mykeybak"
+ },
+ "pairing": {
+  "target_id": "5f5f86a224b742fa9e72b5795ea24d01",
+  "fingerprint": "192f:afad:5dfa:a2c6:e7ba:87aa:b672:1ee8",
+  "priv_b64": "8NXSSF/DSAxTzC6zOL6tQdhtp1aEa8jcq+JmQzpgLVM=",
+  "revoked_package_file": "fixture-nopair.mykeybak"
  },
  "agent": {
   "id": "fixture-agent",
-  "token": "mkag1.fixture-agent.WFEYKswZeMs1681XWQ2Y2eKUuG9uKrz564ZY_SoZiiU",
+  "token": "mkag1.fixture-agent.TP3Bb5qxp9cLM4Oq2pUwkpc40uZCCLgppftoQDtAzc8",
   "scopes": [
    "list",
    "get:github"
