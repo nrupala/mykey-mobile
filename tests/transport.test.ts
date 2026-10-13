@@ -96,6 +96,14 @@ describe("transport gates — no network surface", () => {
       "http://www.apache.org/licenses/LICENSE-2.0",
       "https://nrupalakolkar.com",
       "https://muse.ai/join",
+      // Licensing wave amendment, in the same change, per this
+      // gate's own rule (mirrors the desktop gate): the brand-
+      // configured Buy / Tip destinations from src/brand.ts. Like
+      // the attribution links, they open only on the user's own
+      // tap in the system browser — the app fetches nothing, ever.
+      // The set stays closed.
+      "https://usemykey.com/buy",
+      "https://usemykey.com/tip",
     ]);
     const offenders: string[] = [];
     for (const f of surfaceFiles) {

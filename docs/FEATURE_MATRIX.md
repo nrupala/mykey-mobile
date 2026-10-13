@@ -1,7 +1,8 @@
 # Feature matrix — MyKey web client (PWA) + Android app
 
-Exact status of every feature, as of the 1.2.0 blob wave plus
-the password-rotation wave (2026-10-13). "Deferred" means deliberately not built yet, not
+Exact status of every feature, as of the 1.3.0 licensing wave
+(2026-10-13), following the blob and password-rotation waves. "Deferred" means deliberately not built yet, not
+
 broken. "Platform-blocked" means the platform cannot genuinely do
 it, the app says so in plain words, and a working fallback is
 offered instead.
@@ -51,6 +52,17 @@ offered instead.
 | Sync in the Android app | Implemented as an explicit file flow (verified behaviour) | The Android WebView provides no directory picker, so folder sync is never offered there — the capability is detected at runtime and the decision is unit-tested (`folderSyncOffered`: native ⇒ never). Instead, Settings labels the real flow in plain words: "Download my vault file" saves the encrypted vault into the user's cloud app via the share sheet; "Load a vault file from my cloud app" brings a newer copy back (different-vault loads ask first, then the app locks and the user unlocks the loaded copy). The app cannot silently sync on Android and does not claim to. |
 | WebDAV sync | Deferred | No client ships WebDAV yet: the desktop provider interface anticipates it but no WebDAV provider is implemented anywhere (see the desktop SYNC_BACKUP.md). Both clients ship folder flows only in v1. Any future network provider is HTTPS-only with certificate verification always on — the rule is gated in tests/transport.test.ts and the desktop tests/test_transport_gates.py. |
 | Any server, account, telemetry | Never | There is no MyKey server. CSP `connect-src 'none'` makes the client incapable of network calls. |
+
+## Licensing
+
+| Feature | Status | Notes |
+|---|---|---|
+| Free tier | Implemented | Up to 50 passwords + 4 connections per vault. Only the counts are limited — encryption, TOTP, sync, two-factor backups, pairing, rotation, skins and export are never gated. Full plain-language terms: LICENCE.md. |
+| Licence key (paste) | Implemented | `MKLIC1.` token, Ed25519-signed by the MyKey Licence Authority (fingerprint EE62F41972E84A9ABDEDF14A565D3A0C9B65B996), verified fully offline against the embedded public key. Stored in the vault's encrypted settings (travels with the vault) and in the device slot (new vaults here start licensed); either copy alone suffices. |
+| Connections pool | Implemented (counting + seam) | One pool per vault: active devices + agents (in the vault registries) + paired browsers (settings list — the seam the browser-extension client registers through). This client has no enrollment mutations of its own (devices/agents are enrolled from the desktop), so it counts and reports; the desktop enforces at enrollment. Blob/export pairing targets are destinations, never counted. |
+| Grandfather rule | Implemented | A vault over a limit opens, reads, edits and exports fully; only adding pauses. Imports fill to the limit and report exactly how many were held back. |
+| Buy a licence | Implemented (platform seam) | Web/PWA: opens the brand-configured page on usemykey.com. Android: never links out to a web checkout for the digital unlock (Google Play policy) — it explains buying on the website from another device; Play Billing plugs into `src/platform/purchase.ts` at this seam once the Play listing exists. Licence-key paste works in every build. |
+| Tip jar | Implemented | Settings entry, separate from the licence; tips unlock nothing. Same platform seam as Buy. |
 
 ## Platform
 

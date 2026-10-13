@@ -4,6 +4,31 @@ All notable changes to the MyKey web client + Android app.
 Versions follow the client's own line; the vault format it speaks
 is Vault v3 (desktop engine 2.2.0).
 
+## [1.3.0] — 2026-10-13
+
+Licensing wave — the free tier and the signed licence key, in
+lockstep with the desktop engine.
+
+- **Free tier, counted fairly.** Up to 50 passwords and 4
+  connections (devices + agents + paired browsers, one pool per
+  vault). Only the counts are limited; every security feature
+  stays free. Settings shows the state in plain words ("Free ·
+  37 of 50 passwords · 3 of 4 connections").
+- **Licence keys.** Settings → "Enter a licence key": an
+  Ed25519-signed `MKLIC1.` token verified fully offline. The key
+  is stored inside the vault (travels with it) and in a device
+  slot (new vaults start licensed). Licence statement format,
+  passcode recovery and the grandfather rule are shared with the
+  desktop — see LICENCE.md.
+- **Grandfather rule + honest imports.** Over-limit vaults open
+  and work fully; only adding pauses. Imports fill to the limit
+  and report exactly how many were held back and why.
+- **About screen slot filled.** The help wave's marked licence / tip slot in About now carries the plain-words licence summary (and the live status line when a vault is open).
+- **Buy / tip jar, Play-safe.** Buy and Tip jar live in Settings.
+  The Android build never links out to a web checkout for the
+  unlock (Play policy): it points to the website on another
+  device, with Play Billing seamed in for the future listing.
+
 ## [Unreleased]
 
 - **Password age + rotation.** The app notes the day each password

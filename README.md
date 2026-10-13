@@ -118,6 +118,16 @@ live only in `src/brand.ts`, over a brand-neutral engine.
   the Android manifest ships with **no INTERNET permission** and
   Android cloud backup of app data disabled.
 
+## Free version & licence
+
+Free for up to 50 passwords and 4 connections (devices, agents
+and paired browsers in one shared pool, counted per vault). A
+one-time licence key — signed, verified fully offline — unlocks
+unlimited passwords and 20 connections. Only the counts are
+limited; every security feature stays free, and a vault already
+over the limit opens and works fully (only adding pauses).
+Plain-language details: [LICENCE.md](LICENCE.md).
+
 ## The interoperability gate (non-negotiable)
 
 A client that only opens its own files is not done. Fixtures in

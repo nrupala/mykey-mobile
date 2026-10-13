@@ -48,6 +48,10 @@ export interface ImportStats {
   overwritten: number;
   keptBoth: number;
   skippedConflicts: number;
+  /** New entries the free entry limit held back (licensing wave —
+   * mirrors the desktop engine's stats["held_back"]). Always 0
+   * when licensed. */
+  heldBack: number;
 }
 
 // ------------------------------------------------------------------

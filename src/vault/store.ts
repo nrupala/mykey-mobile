@@ -140,4 +140,12 @@ export const store = {
     delete all[id];
     await idbSet("pairingTargetKeys", all);
   },
+  /** Device-local licence slot (licensing wave). The stored value
+   * is the signed licence token itself — signed, not secret, so
+   * it is safe to keep here; it lets a NEW vault created on this
+   * device start licensed, mirroring the desktop device slot. */
+  getLicenceKey: () => idbGet<string>("licence"),
+  setLicenceKey: (token: string) => idbSet("licence", token),
+  clearLicenceKey: () => idbDelete("licence"),
+
 };
