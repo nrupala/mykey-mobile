@@ -213,6 +213,61 @@ def main():
                 os.unlink(lic_path + suffix)
             except OSError:
                 pass
+    # --- Passkey fixture (separate vault; the main fixture's entry
+    # count is asserted exactly by existing tests, so passkeys get
+    # their own file). Deterministic EC key, like the desktop tests.
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding, NoEncryption, PrivateFormat, PublicFormat)
+    FIXED_SCALAR = 0x5EED5EED5EED5EED5EED5EED5EED5EED5EED5EED5EED5EED5EED5EED5EED5EED
+    priv = ec.derive_private_key(FIXED_SCALAR, ec.SECP256R1())
+    pkcs8 = priv.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+    point = priv.public_key().public_bytes(
+        Encoding.X962, PublicFormat.UncompressedPoint)
+    from mykey import _b64e as b64e
+    pk_record = {
+        "rp_id": "example.com",
+        "user_id": b64e(b"fixture-user-01"),
+        "user_name": "user@example.com",
+        "user_display_name": "Fixture User",
+        "credential_id": b64e(bytes(range(16))),
+        "alg": -7,
+        "public_key": b64e(point),
+        "private_key": b64e(pkcs8),
+        "sign_count": 7,
+        "transports": ["internal"],
+        "created_at": 1700000000,
+        "aaguid": b64e(bytes(16)),
+        "backup_eligible": True,
+        "backed_up": True,
+    }
+    pk_path = os.path.join(OUT, "fixture-passkey.mykey")
+    for suffix in ("", ".bak", ".audit.jsonl", ".audit-anchor.json"):
+        try:
+            os.unlink(pk_path + suffix)
+        except OSError:
+            pass
+    pk_app = MyKey(PASSWORD, vault_file=pk_path)
+    pk_app.unlock()
+    pk_app.add_entry(make_entry(
+        service="github", username="octocat", password="fake-gh-pass-123",
+        url="https://github.com", notes="login beside the passkey",
+        totp_secret="", tags=["dev"], favourite=False))
+    pk_app.add_passkey(pk_record)
+    for suffix in (".bak", ".audit.jsonl", ".audit-anchor.json",
+                   ".backup-state.json"):
+        try:
+            os.unlink(pk_path + suffix)
+        except OSError:
+            pass
+    expected["passkey"] = {
+        "fixture_file": "fixture-passkey.mykey",
+        "rp_id": "example.com",
+        "user_name": "user@example.com",
+        "credential_id": pk_record["credential_id"],
+        "public_key": pk_record["public_key"],
+        "sign_count": 7,
+    }
 
     # Remove Python sidecar/backup files so the fixtures directory
     # ships exactly the artefacts the tests consume.

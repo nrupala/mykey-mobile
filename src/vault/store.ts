@@ -116,6 +116,11 @@ export const store = {
     return merged;
   },
   setSettings: (s: AppSettings) => idbSet("settings", s),
+  // Passkey clone detection: device-local sign_count high-water
+  // marks (credential_id -> highest count seen on THIS device).
+  // Counts only — no key material, no record contents.
+  getPasskeyHighWater: () => idbGet<Record<string, number>>("passkeyHighWater"),
+  setPasskeyHighWater: (hw: Record<string, number>) => idbSet("passkeyHighWater", hw),
   getSyncDirHandle: () => idbGet<FileSystemDirectoryHandle>("syncDirHandle"),
   setSyncDirHandle: (h: FileSystemDirectoryHandle) => idbSet("syncDirHandle", h),
   clearSyncDirHandle: () => idbDelete("syncDirHandle"),

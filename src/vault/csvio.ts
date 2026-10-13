@@ -27,10 +27,17 @@ import type { VaultEntry } from "./vault.js";
 /** A record parsed from an import file. Import sources carry no
  * password set date, so the rotation fields are deliberately not
  * part of this shape: the vault records imported passwords as
- * "date not recorded" (see VaultSession.importEntries). */
+ * "date not recorded" (see VaultSession.importEntries). Passkey
+ * fields are likewise excluded: CSV import never creates passkeys. */
 export type ImportRecord = Omit<
   VaultEntry,
-  "id" | "created" | "updated" | "password_set_at" | "rotate_days"
+  | "id"
+  | "created"
+  | "updated"
+  | "password_set_at"
+  | "rotate_days"
+  | "kind"
+  | "passkey"
 >;
 export type ConflictPolicy = "skip" | "overwrite" | "keep_both";
 export type CsvFormat = "chromium" | "firefox" | "generic";

@@ -126,6 +126,26 @@ The blob wave: backup packages round-trip through this client.
   a new copy restarts the timer. On Android, copies are marked
   sensitive (EXTRA_IS_SENSITIVE) via a small native plugin; the
   previous fixed 30-second setting is superseded.
+Passkey wave (2026-10-13).
+
+- **Passkey storage.** Vault entries of kind "passkey" hold a
+  WebAuthn record (credential private key included) in its own
+  blob under a new per-entry key class (DEK_passkey), sealed by
+  a core hash — same discipline as passwords and TOTP, separate
+  key. Interop-proven both directions; the Python cross-check
+  verifies a TS-produced assertion signature.
+- **Passkey use on Android.** The app is a Credential Manager
+  provider (API 34+): "create a passkey" and "sign in with a
+  passkey" run through a TypeScript WebAuthn authenticator on the
+  unlocked vault — RP ID mismatch always refused, unlock is the
+  user verification, attestation honestly "none", sign_count
+  monotonic with a device-local clone warning. Provider flows
+  are compile-verified in CI; the device test script is
+  docs/DEVICE_TEST_PASSKEYS.md. Design + limits:
+  docs/PASSKEYS.md.
+- **Never to agents, never to CSV.** Passkey entries are excluded
+  from agent bundles in both engines; CSV export skips them and
+  CSV import never overwrites one.
 
 ## [1.1.0] — 2026-10-13
 
