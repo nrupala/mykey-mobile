@@ -62,3 +62,11 @@ offered instead.
 | Device display defaults | Implemented | First run follows the device: OS light/dark (reacts live to OS changes), OS font scaling (all sizes relative; the Android shell sets no WebView text-zoom override, so the system font scale applies), reduced-motion honoured. Any skin choice overrides until "Use device settings" is picked again. |
 | Skins (themes) | Implemented | Settings → Appearance: Device (auto), Daylight, Midnight, Ocean, Forest, Dune, Chakra, High Contrast. Token-based — every colour comes from the active palette; picking applies instantly (the picker is its own live preview) and persists on-device. Every skin passes the WCAG AA contrast gate in CI (tests/themes.test.ts). Palette rationale: docs/DESIGN.md. |
 | Password strength meter | Implemented | Five segments in the theme's meter ramp plus a word (Very weak → Excellent) — never colour alone. The Chakra skin's ramp follows the seven-chakra spectrum. |
+
+## Help & About
+
+| Feature | Status | Notes |
+|---|---|---|
+| Built-in help ("How MyKey works") | Implemented | The canonical HELP.md from the desktop repo, mirrored byte-for-byte in `src/content/` and rendered in-app from the bundle — fully offline, no web view. CI compares the mirror against the desktop repo on every run (`cmp` step in pwa.yml), so the apps cannot drift. |
+| FAQ ("Common questions") | Implemented | Same canonical-text arrangement as the help file (FAQ.md). Reachable from the locked screen as well as from inside the vault — a locked-out user is exactly who needs it. |
+| About screen | Implemented | Settings → About MyKey (and from Help): name, version, seller (2351485 ALBERTA INC.), support (info@aimlds.org), linked attribution with the Muse referral code, licence summary pointing at TERMS, changelog pointer. A marked code slot waits for the licence / tip block if the free-tier ruling lands — no purchase content ships before that ruling. |

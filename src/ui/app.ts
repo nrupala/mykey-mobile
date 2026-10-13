@@ -45,6 +45,13 @@ import {
 import { store, type AppSettings } from "../vault/store.js";
 import { chooseTheme, currentThemeChoice } from "./appearance.js";
 import {
+  aboutInfo,
+  FAQ_MARKDOWN,
+  HELP_MARKDOWN,
+  licenceSlotLines,
+} from "./help.js";
+import { renderMarkdown } from "./markdown.js";
+import {
   CHAKRA_SPECTRUM,
   DEVICE_DARK,
   DEVICE_LIGHT,
@@ -276,6 +283,66 @@ async function renderLocked(notice?: string): Promise<void> {
     );
     root.append(actions);
   }
+
+  // Help must be reachable while locked out — the FAQ is where a
+  // user with a forgotten password or a lost phone lands.
+  const helpRow = el("div", { class: "action-stack" });
+  helpRow.append(button("Help and questions", () => renderHelp("locked")));
+  root.append(helpRow);
+  render(root);
+}
+
+// ------------------------------------------------------------------
+// Help & About screens (fully offline — the text ships in the app)
+// ------------------------------------------------------------------
+
+function backFromHelp(origin: "locked" | "unlocked"): void {
+  if (origin === "unlocked" && state.session) renderUnlocked();
+  else void renderLocked();
+}
+
+function renderHelp(origin: "locked" | "unlocked"): void {
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Help and questions"));
+  root.append(
+    el("p", { class: "lede" },
+      "How MyKey works, and answers to common questions. This help is inside the app — no internet needed."),
+  );
+  const top = el("div", { class: "action-stack" });
+  top.append(
+    button("About MyKey", () => renderAbout(() => renderHelp(origin))),
+    button("Back", () => backFromHelp(origin), "primary"),
+  );
+  root.append(top);
+  root.append(renderMarkdown(HELP_MARKDOWN));
+  root.append(renderMarkdown(FAQ_MARKDOWN));
+  root.append(button("Back", () => backFromHelp(origin), "primary"));
+  render(root);
+}
+
+function renderAbout(back: () => void): void {
+  const info = aboutInfo();
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, `About ${info.productName}`));
+  const card = el("div", { class: "card" });
+  card.append(el("h3", {}, `${info.productName} — ${info.tagline}`));
+  card.append(el("p", {}, `Version ${info.version} · ${info.vaultFormat}`));
+  card.append(el("p", {}, `Sold by ${info.vendor} · ${info.domain}`));
+  card.append(el("p", {}, `Support: ${info.supportEmail}`));
+  const attribution = el("p", {});
+  attribution.append(
+    document.createTextNode("Owned by "),
+    el("a", { href: info.ownerUrl }, info.ownerName),
+    document.createTextNode(" · Built with "),
+    el("a", { href: info.builderUrl }, info.builderName),
+    document.createTextNode(` — ${info.referralLine}`),
+  );
+  card.append(attribution);
+  card.append(el("p", {}, `Licence: ${info.licenceSummary} ${info.termsPointer}`));
+  for (const line of licenceSlotLines()) card.append(el("p", {}, line));
+  card.append(el("p", { class: "hint" }, info.whatsNewPointer));
+  root.append(card);
+  root.append(button("Back", back, "primary"));
   render(root);
 }
 
@@ -952,6 +1019,8 @@ function settingsPanel(): HTMLElement {
     button("Appearance — colours and skins", () => renderAppearance()),
     button("Import passwords from a browser file", () => renderImportCsv()),
     button("Export passwords as a readable file (CSV)", () => renderExportCsv()),
+    button("Help and questions", () => renderHelp("unlocked")),
+    button("About MyKey", () => renderAbout(() => renderUnlocked())),
   );
 
   if (syncFolderSupported()) {

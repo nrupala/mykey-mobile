@@ -4,6 +4,24 @@ All notable changes to the MyKey web client + Android app.
 Versions follow the client's own line; the vault format it speaks
 is Vault v3 (desktop engine 2.1.0).
 
+## [Unreleased]
+
+Help + FAQ + About wave (desktop repo: MyKey Help wave PR).
+
+- **Built-in help, fully offline.** "How MyKey works" and
+  "Common questions" render in-app from text bundled with the
+  client — no web view, no network. The canonical text lives in
+  the desktop repo (HELP.md / FAQ.md); this repo mirrors it
+  byte-for-byte in `src/content/`, and CI now fails if the two
+  drift apart.
+- **Help is reachable while locked out.** A "Help and questions"
+  button sits on the locked and welcome screens, not just in
+  Settings — a forgotten password is when the FAQ matters most.
+- **About screen.** Settings → About MyKey: name, version,
+  seller, support address, the linked attribution line with the
+  Muse referral code, a licence summary pointing at TERMS, and
+  a changelog pointer.
+
 ## [1.1.0] — 2026-10-13
 
 Polish wave, driven by the first device test of 1.0.0.
