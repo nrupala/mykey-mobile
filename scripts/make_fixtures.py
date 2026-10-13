@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.abspath(PY_DIR))
 from mykey import MyKey, make_entry          # noqa: E402
 import recovery                               # noqa: E402
 import devices                                # noqa: E402
+import pairings                               # noqa: E402
 from backup_pkg import export_package         # noqa: E402
 from totp import totp_now                     # noqa: E402
 
@@ -79,12 +80,27 @@ def main():
     token = agents_mod.enroll_agent(app, "fixture-agent",
                                     ["list", "get:github"])
 
-    # A device identity + an MKBAK package (recovery-recipient import
-    # is the path the TS client implements in v1).
+    # A device identity + MKBAK packages. Since the blob wave the
+    # default package is v2: recovery is TWO-FACTOR (phrase + the
+    # backup code returned here — a test value in expected.json),
+    # and paired targets holding the export scope get a slot.
     ident = devices.DeviceIdentity.generate("fixture-device")
     devices.enroll_device(app, ident.card())
+    target = pairings.PairingTargetIdentity.generate(
+        "export", "fixture-target")
+    pairings.enroll_pairing(app, target.payload(),
+                            ["push", "pull", "export"])
     pkg_path = os.path.join(OUT, "fixture.mykeybak")
-    export_package(app, ident, out_path=pkg_path)
+    _pkg, backup_code = export_package(app, ident, out_path=pkg_path)
+    assert backup_code, "v2 export must yield a backup code"
+    # Legacy v1 package (phrase-only recovery) for the downgrade-
+    # labelled import path.
+    legacy_path = os.path.join(OUT, "fixture-v1.mykeybak")
+    export_package(app, ident, out_path=legacy_path, version=1)
+    # After revocation the same export must carry NO pairing slot.
+    pairings.revoke_pairing(app, target.target_id)
+    nopair_path = os.path.join(OUT, "fixture-nopair.mykeybak")
+    export_package(app, ident, out_path=nopair_path)
 
     expected = {
         "password": PASSWORD,
@@ -103,12 +119,25 @@ def main():
         "backup": {
             "source_fingerprint": ident.fingerprint,
             "package_file": "fixture.mykeybak",
+            # The v2 fixture package's backup code (test-only value,
+            # like everything in this file).
+            "backup_code": backup_code,
+            "legacy_file": "fixture-v1.mykeybak",
+        },
+        "pairing": {
+            "target_id": target.target_id,
+            "fingerprint": target.fingerprint,
+            # Test-only private key: lets the TS client exercise the
+            # pairing import path against fixture.mykeybak.
+            "priv_b64": __import__("base64").b64encode(
+                target.x_priv_raw).decode(),
+            "revoked_package_file": "fixture-nopair.mykeybak",
         },
         "agent": {"id": "fixture-agent", "token": token,
                   "scopes": ["list", "get:github"]},
     }
     # Remove Python sidecar/backup files so the fixtures directory
-    # ships exactly the three artefacts the tests consume.
+    # ships exactly the artefacts the tests consume.
     for suffix in (".bak", ".audit.jsonl", ".audit-anchor.json",
                    ".backup-state.json"):
         try:

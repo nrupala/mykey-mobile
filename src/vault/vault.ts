@@ -373,6 +373,7 @@ export class VaultSession {
       retired_pending_keys: {},
       audit_mac_since: 0,
       devices: {},
+      pairings: {},
       backup_recovery_pub: null,
     };
     const session = new VaultSession({
@@ -649,6 +650,44 @@ export class VaultSession {
       }
     }
     return stats;
+  }
+
+  // ---------------------------------------------------------------
+  // Device + pairing registries (blob wave). Records live in the
+  // encrypted core, mirroring the desktop registries; mutations
+  // mark the vault dirty so the app layer persists them. The
+  // session is the human's unlocked session by construction.
+  // ---------------------------------------------------------------
+
+  /** Deep copy of the device registry (core "devices"). */
+  devicesRegistry(): Record<string, any> {
+    return JSON.parse(JSON.stringify(this.core.devices ?? {}));
+  }
+
+  /** Deep copy of the pairing registry (core "pairings"). Vaults
+   *  created before the blob wave have no "pairings" field — it
+   *  reads as empty and is added on the first enrollment. */
+  pairingsRegistry(): Record<string, any> {
+    return JSON.parse(JSON.stringify(this.core.pairings ?? {}));
+  }
+
+  /** The vault's backup recovery recipient public key, raw bytes,
+   *  or null when no recovery phrase is set up. */
+  backupRecoveryPub(): Uint8Array | null {
+    const raw = this.core.backup_recovery_pub;
+    return typeof raw === "string" && raw ? b64decode(raw) : null;
+  }
+
+  putDeviceRecord(record: Record<string, any>): void {
+    if (!this.core.devices) this.core.devices = {};
+    this.core.devices[record.device_id] = record;
+    this.markDirty();
+  }
+
+  putPairingRecord(record: Record<string, any>): void {
+    if (!this.core.pairings) this.core.pairings = {};
+    this.core.pairings[record.target_id] = record;
+    this.markDirty();
   }
 
   // ---------------------------------------------------------------

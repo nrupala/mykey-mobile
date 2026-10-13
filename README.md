@@ -38,10 +38,13 @@ src/
     crypto.ts           AES-256-GCM, Argon2id (hash-wasm), PBKDF2
     recovery.ts         BIP-39 phrase keys + backup keypair
     totp.ts             RFC 6238 TOTP
-    backup.ts           MKBAK backup-package restore (recovery path)
+    backup.ts           MKBAK backup packages: export + import (v2
+                        two-factor recovery, device + pairing paths)
+    pairings.ts         key-value pairing records + backup codes
+    device.ts           this client's device / pairing-target keys
     csvio.ts            CSV import/export, mirroring the desktop engine
     encoding.ts         base64 / canonical JSON / strict helpers
-    store.ts            IndexedDB — ciphertext only
+    store.ts            IndexedDB — ciphertext + local identity keys
   platform/           Apache-2.0 platform shell:
     biometric.ts        Android Keystore-backed fingerprint unlock
     filesync.ts         File System Access folder sync, share/download
@@ -83,11 +86,16 @@ live only in `src/brand.ts`, over a brand-neutral engine.
   biometrics alone never expose plaintext, and turning the feature
   off deletes the slot and the stored key. The pure web PWA does
   not offer this (a wrap key in web storage would be a backdoor).
-- **Backup restore.** MKBAK restore enforces the desktop's rules:
-  the source fingerprint is recomputed from the package's keys and
-  must match a fingerprint the user supplies independently (a
-  package cannot vouch for itself); the Ed25519 package signature
-  must verify; older-than-last-restored packages warn first.
+- **Backup packages.** MKBAK export AND restore, enforcing the
+  desktop's rules: the source fingerprint is recomputed from the
+  package's keys and must match a fingerprint the user supplies
+  independently (a package cannot vouch for itself); the Ed25519
+  package signature must verify; older-than-last-restored packages
+  warn first. Newer (v2) packages open outside the app only with
+  the recovery phrase AND an 8-word backup code together — the
+  code is shown once at export and never stored. Which targets
+  receive a package is decided by key-value pairing (see
+  docs/FEATURE_MATRIX.md).
 - **Known boundary.** Desktop vaults sealed by the audit log open
   with an on-screen notice: the web client cannot verify the
   sidecar audit log. The seal rides through every save untouched,
