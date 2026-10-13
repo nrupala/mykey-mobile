@@ -25,7 +25,7 @@ offered instead.
 | Feature | Status | Notes |
 |---|---|---|
 | List, search | Implemented | Search covers service, username, website, notes, tags. |
-| View / copy (username, password, TOTP) | Implemented | Passwords masked until "Show"; clipboard auto-clears. |
+| View / copy (username, password, TOTP) | Implemented | Passwords masked until "Show". Copied secrets clear themselves after 1 minute by default (Settings: 1–5 minutes, hard bounds 60–300s), only if the clipboard still holds what MyKey put there; locking clears at once. Android marks clips sensitive (EXTRA_IS_SENSITIVE); on the web a browser may block the timed clear without focus — stated, never faked. |
 | Add / edit / delete | Implemented | Delete asks for a second tap — no silent destructive action. Duplicate (service, username) refused, like the desktop. |
 | Password generator | Implemented | ≥ 16 characters (default 20), unbiased random selection, desktop's alphabet. |
 | TOTP sign-in codes | Implemented | Live code + countdown, RFC 6238, accepts raw secrets and otpauth:// values. |

@@ -102,6 +102,14 @@ live only in `src/brand.ts`, over a brand-neutral engine.
   code is shown once at export and never stored. Which targets
   receive a package is decided by key-value pairing (see
   docs/FEATURE_MATRIX.md).
+- **Clipboard.** Copied passwords clear themselves after 1 minute
+  (you can choose 1–5 minutes in Settings). Only what MyKey put
+  there is cleared — copy something else afterwards and it is left
+  alone — and locking the vault clears a copied secret at once.
+  On Android the clip is marked sensitive, so system previews and
+  keyboard history treat it as a secret. On the web, a browser
+  that refuses clipboard access without focus can block the
+  timed clear; the app never claims a clear that did not happen.
 - **Known boundary.** Desktop vaults sealed by the audit log open
   with an on-screen notice: the web client cannot verify the
   sidecar audit log. The seal rides through every save untouched,

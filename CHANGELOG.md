@@ -56,6 +56,20 @@ The blob wave: backup packages round-trip through this client.
   saves/loads only while that pairing is active with the matching
   permission. Revoke/disable/expire from the pairing screen.
 
+## [Unreleased]
+
+### Changed — clipboard self-clear rule (owner directive, 2026-10-13)
+- Copied secrets (passwords, TOTP codes, recovery material) now
+  clear through one guard (`src/platform/clipboard.ts`): 1 minute
+  by default, user-settable from 1 to 5 minutes in Settings with
+  hard bounds of 60–300 seconds enforced at a single validation
+  point (older stored values are clamped on load). The clipboard
+  is cleared only if it still holds exactly what MyKey put there;
+  locking the vault clears a pending copied secret immediately;
+  a new copy restarts the timer. On Android, copies are marked
+  sensitive (EXTRA_IS_SENSITIVE) via a small native plugin; the
+  previous fixed 30-second setting is superseded.
+
 ## [1.1.0] — 2026-10-13
 
 Polish wave, driven by the first device test of 1.0.0.
