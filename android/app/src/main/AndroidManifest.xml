@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="false"
@@ -24,6 +25,31 @@
 
         </activity>
 
+        <!-- Credential Manager provider (passkey wave). Only the
+             Android system may bind to it; it serves passkeys from
+             the encrypted vault after unlock. -->
+        <service
+            android:name=".passkey.MyKeyCredentialProviderService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE"
+            tools:targetApi="upside_down_cake">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/provider" />
+        </service>
+
+        <activity
+            android:name=".passkey.PasskeyActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -35,6 +61,10 @@
         </provider>
     </application>
 
-    <!-- No permissions: the app makes no network calls and needs no
-         device access beyond biometrics for the optional unlock. -->
+    <!-- No app permissions are requested: the app makes no network
+         calls (no INTERNET permission) and needs no device access
+         beyond biometrics for the optional unlock. The credential
+         provider service above is guarded by the system's
+         BIND_CREDENTIAL_PROVIDER_SERVICE permission, which is a
+         signature/system binding, not an app permission grant. -->
 </manifest>

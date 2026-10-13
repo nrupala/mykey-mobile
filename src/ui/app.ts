@@ -109,6 +109,21 @@ import {
 } from "../platform/clipboard.js";
 import { verifyToken } from "../vault/licence.js";
 import { buyLicence, tipJar } from "../platform/purchase.js";
+import {
+  clearPasskeyWarmIndex,
+  completePasskeyRequest,
+  failPasskeyRequest,
+  getPendingPasskeyRequest,
+  setPasskeyWarmIndex,
+  type PendingPasskeyRequest,
+} from "../platform/passkey.js";
+import {
+  b64urlEncode,
+  checkCloneRegression,
+  createCredential,
+  getAssertion,
+  updateHighWater,
+} from "../vault/passkey.js";
 
 // ------------------------------------------------------------------
 // Tiny DOM helpers
@@ -278,6 +293,7 @@ function lock(notice?: string): void {
   // Locking clears a copied secret right away — it never waits
   // for the clipboard timer (platform/clipboard.ts holds the rule).
   void clipboardGuard.clearNow();
+  void clearPasskeyWarmIndex();
   void renderLocked(notice);
 }
 
@@ -1216,7 +1232,137 @@ async function enterVault(session: VaultSession): Promise<void> {
   state.session = session;
   await applyLicenceState(session);
   if (session.needsPersist()) await persist();
+  // Passkeys: refresh the system picker's warm index (metadata
+  // only) and the device-local clone high-water marks. The unlock
+  // that just happened IS the user verification for any pending
+  // Credential Manager request handled below.
+  const records = session.listPasskeys().map((e) => e.passkey!).filter(Boolean);
+  if (records.length) {
+    await setPasskeyWarmIndex(records.map((r) => ({
+      credentialId: b64urlEncode(b64decode(r.credential_id)),
+      rpId: r.rp_id,
+      username: r.user_name,
+      displayName: r.user_display_name,
+    })));
+    const hw = (await store.getPasskeyHighWater().catch(() => undefined)) ?? {};
+    const warnings = checkCloneRegression(records, hw);
+    await store.setPasskeyHighWater(updateHighWater(records, hw)).catch(() => undefined);
+    if (warnings.length) {
+      renderUnlocked();
+      showFatal(new Error(
+        "A passkey's sign-in count went backwards compared with what this phone has seen before. " +
+        "That can happen when an older copy of your vault was restored — or if a copy of a passkey is being used somewhere else. " +
+        "Check the passkey in your list and change it at the site if you did not expect this.",
+      ));
+      return;
+    }
+  }
+  const pending = await getPendingPasskeyRequest();
+  if (pending) {
+    renderPasskeyRequest(pending);
+    return;
+  }
   renderUnlocked();
+}
+
+// ------------------------------------------------------------------
+// Passkey requests from the system (Android Credential Manager)
+// ------------------------------------------------------------------
+
+function renderPasskeyRequest(pending: PendingPasskeyRequest): void {
+  const session = state.session!;
+  const root = el("section", { class: "screen" });
+  const status = el("p", { class: "status", "aria-live": "polite" });
+  const done = async (fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (err) {
+      status.textContent = errorText(err);
+      await failPasskeyRequest(pending.bridgeId, "error");
+      return;
+    }
+    renderUnlocked();
+  };
+  const cancel = button("Cancel", async () => {
+    await failPasskeyRequest(pending.bridgeId, "cancelled");
+    renderUnlocked();
+  });
+
+  if (pending.kind === "create") {
+    let rpLabel = pending.origin;
+    let userLabel = "";
+    try {
+      const opts = JSON.parse(pending.requestJson);
+      rpLabel = opts.rp?.name ?? opts.rp?.id ?? rpLabel;
+      userLabel = opts.user?.name ?? "";
+    } catch { /* labels are cosmetic; the ceremony re-parses strictly */ }
+    root.append(
+      el("h2", {}, "Create a passkey?"),
+      el("p", { class: "lede" },
+        `${rpLabel} wants to create a passkey${userLabel ? ` for ${userLabel}` : ""}. ` +
+        "It will be saved inside your encrypted vault. You unlocked your vault just now, and that unlock is the verification for this passkey."),
+      button("Create passkey", () => done(async () => {
+        const res = await createCredential(session, {
+          origin: pending.origin,
+          optionsJson: pending.requestJson,
+          userVerified: true,
+        });
+        await persist();
+        await completePasskeyRequest(pending.bridgeId, JSON.stringify(res));
+      }), "primary"),
+      cancel,
+      status,
+    );
+    render(root);
+    armAutoLock();
+    return;
+  }
+
+  // kind === "get"
+  let rpId = pending.origin;
+  try {
+    const opts = JSON.parse(pending.requestJson);
+    rpId = opts.rpId ?? opts.rp?.id ?? new URL(pending.origin).hostname;
+  } catch {
+    try { rpId = new URL(pending.origin).hostname; } catch { /* ceremony validates */ }
+  }
+  const candidates = session.listPasskeys().filter((e) => e.passkey?.rp_id === rpId || e.service === rpId);
+  root.append(el("h2", {}, "Sign in with a passkey?"));
+  if (candidates.length === 0) {
+    root.append(
+      el("p", { class: "lede" },
+        `You have no passkey for ${rpId} in this vault.`),
+      button("Back", async () => {
+        await failPasskeyRequest(pending.bridgeId, "no-credential");
+        renderUnlocked();
+      }, "primary"),
+      status,
+    );
+    render(root);
+    armAutoLock();
+    return;
+  }
+  root.append(el("p", { class: "lede" },
+    `Use a passkey to sign in to ${rpId}? You unlocked your vault just now, and that unlock is the verification.`));
+  for (const entry of candidates) {
+    root.append(button(
+      `Sign in as ${entry.passkey!.user_name || entry.username}`,
+      () => done(async () => {
+        const res = await getAssertion(session, {
+          origin: pending.origin,
+          optionsJson: pending.requestJson,
+          userVerified: true,
+          selectCredentialId: b64urlEncode(b64decode(entry.passkey!.credential_id)),
+        });
+        await persist();
+        await completePasskeyRequest(pending.bridgeId, JSON.stringify(res));
+      }),
+      "primary",
+    ));
+  }
+  root.append(cancel, status);
+  render(root);
+  armAutoLock();
 }
 
 function renderUnlocked(selectedId?: string): void {
@@ -1281,6 +1427,9 @@ function renderUnlocked(selectedId?: string): void {
         el("span", { class: "entry-service" }, (entry.favourite ? "★ " : "") + entry.service),
         el("span", { class: "entry-user" }, entry.username),
       );
+      if (entry.kind === "passkey") {
+        item.append(el("span", { class: "entry-badge" }, "Passkey"));
+      }
       if (entry.totp_secret) {
         const code = el("span", { class: "entry-totp", "data-totp-for": entry.id }, "······");
         item.append(code);
@@ -1360,6 +1509,43 @@ function entryDetail(entry: VaultEntry): HTMLElement {
   const box = el("article", { class: "card", "aria-label": `${entry.service} details` });
   box.append(el("h3", {}, (entry.favourite ? "★ " : "") + entry.service));
   const status = el("p", { class: "status", "aria-live": "polite" });
+
+  if (entry.kind === "passkey" && entry.passkey) {
+    // Passkeys have no password fields: they are used at sign-in
+    // time through the system passkey picker, never copied or shown.
+    const rec = entry.passkey;
+    const row = (labelText: string, value: string) => {
+      const r = el("div", { class: "kv" });
+      r.append(el("span", { class: "kv-label" }, labelText), el("span", { class: "kv-value" }, value));
+      box.append(r);
+    };
+    box.append(el("p", {}, "Passkey — sign in without a password."));
+    row("Website", rec.rp_id);
+    row("User", rec.user_name || "—");
+    if (rec.user_display_name) row("Name", rec.user_display_name);
+    row("Created", new Date(rec.created_at * 1000).toLocaleDateString());
+    row("Times used", String(rec.sign_count));
+    if (entry.notes) row("Notes", entry.notes);
+    box.append(el("p", { class: "hint" },
+      "To use this passkey, go to the site's sign-in page and choose the passkey option — pick MyKey when your phone asks where your passkeys are. " +
+      "Deleting it here means this device can no longer sign in with it; the site may still list it until you remove it there too."));
+    const actions = el("div", { class: "action-row" });
+    actions.append(
+      button("Delete", async (ev) => {
+        const btn = ev.currentTarget as HTMLButtonElement;
+        if (btn.dataset.armed !== "1") {
+          btn.dataset.armed = "1";
+          btn.textContent = "Tap again to delete for good";
+          return;
+        }
+        await session.deleteEntry(entry.id);
+        await persist();
+        renderUnlocked();
+      }, "danger"),
+    );
+    box.append(actions, status);
+    return box;
+  }
 
   const showRow = (labelText: string, value: string, copyLabel?: string) => {
     const row = el("div", { class: "kv" });
@@ -2193,7 +2379,11 @@ function renderExportCsv(): void {
   const session = state.session!;
   const root = el("section", { class: "screen" });
   root.append(el("h2", {}, "Export passwords as a readable file"));
-  const entries = session.listEntries();
+  // Passkeys are never in a CSV — there is no readable form of a
+  // passkey that would still work, and the private key must never
+  // appear in a plaintext file.
+  const entries = session.listEntries().filter((e) => e.kind !== "passkey");
+  const passkeyCount = session.listPasskeys().length;
   const status = el("p", { class: "status", "aria-live": "polite" });
 
   const warning = el("div", { class: "warning-panel" });
@@ -2206,9 +2396,13 @@ function renderExportCsv(): void {
   );
   root.append(warning);
 
+  if (passkeyCount) {
+    root.append(el("p", { class: "hint" },
+      `Your vault also holds ${passkeyCount} passkey${passkeyCount === 1 ? "" : "s"}. Passkeys are not included in this file — they cannot be exported as readable text.`));
+  }
   const confirmBox = el("input", { type: "checkbox" }) as HTMLInputElement;
   const exportBtn = button("Export the readable file", async () => {
-    const csv = exportCsv(session.listEntries());
+    const csv = exportCsv(entries);
     const ok = await exportFile(EXPORT_FILENAME, utf8Encode(csv), "text/csv");
     status.textContent = ok
       ? `Saved as ${EXPORT_FILENAME}. Delete it as soon as you are done with it.`

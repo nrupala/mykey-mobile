@@ -81,5 +81,13 @@
    "list",
    "get:github"
   ]
+ },
+ "passkey": {
+  "fixture_file": "fixture-passkey.mykey",
+  "rp_id": "example.com",
+  "user_name": "user@example.com",
+  "credential_id": "AAECAwQFBgcICQoLDA0ODw==",
+  "public_key": "BPcnAZFFJo0rB0KkFxGwziPVzeDxmgulms8aSGonZvnd0Owhv3XaswsjAIq0Exk7yS46z5C/LCGiClfdRuYPlcw=",
+  "sign_count": 7
  }
 }

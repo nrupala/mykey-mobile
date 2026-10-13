@@ -32,6 +32,7 @@ import {
   WrongPasswordError,
   generatePassword,
 } from "../src/vault/vault.js";
+import { b64urlDecode, b64urlEncode, getAssertion } from "../src/vault/passkey.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIX = join(here, "fixtures");
@@ -398,6 +399,49 @@ describe("TS-written files for the Python cross-check", () => {
     await expect(
       VaultSession.openWithWrapKey(saved, "pwa-device", randomBytes(32)),
     ).rejects.toBeInstanceOf(WrongPasswordError);
+  });
+});
+
+describe("Passkey fixture (Python-created) opens and signs in the TS client", () => {
+  const pkBytes = new Uint8Array(readFileSync(join(FIX, "fixture-passkey.mykey")));
+
+  it("record matches the Python-written expected values", async () => {
+    const s = await VaultSession.openWithPassword(pkBytes, expected.password);
+    const keys = s.listPasskeys();
+    expect(keys).toHaveLength(1);
+    const rec = keys[0]!.passkey!;
+    expect(rec.rp_id).toBe(expected.passkey.rp_id);
+    expect(rec.user_name).toBe(expected.passkey.user_name);
+    expect(rec.credential_id).toBe(expected.passkey.credential_id);
+    expect(rec.public_key).toBe(expected.passkey.public_key);
+    expect(rec.sign_count).toBe(expected.passkey.sign_count);
+    // the login beside it is intact
+    expect(s.listEntries()).toHaveLength(2);
+  });
+
+  it("produces an assertion (sign_count 7 → 8) and writes it for the Python cross-check", async () => {
+    mkdirSync(OUT, { recursive: true });
+    const s = await VaultSession.openWithPassword(pkBytes, expected.password);
+    const challenge = b64urlEncode(new Uint8Array(32).fill(9));
+    const a = await getAssertion(s, {
+      origin: "https://example.com",
+      optionsJson: { challenge, rpId: "example.com", userVerification: "required" },
+      userVerified: true,
+    });
+    expect(s.listPasskeys()[0]!.passkey!.sign_count).toBe(8);
+    const std = (b64url: string) => Buffer.from(b64urlDecode(b64url)).toString("base64");
+    writeFileSync(
+      join(OUT, "passkey-assertion.json"),
+      JSON.stringify({
+        authenticator_data: std(a.response.authenticatorData),
+        client_data_json: std(a.response.clientDataJSON),
+        signature: std(a.response.signature),
+        credential_id: s.listPasskeys()[0]!.passkey!.credential_id,
+      }, null, 2),
+    );
+    writeFileSync(join(OUT, "passkey-resaved.mykey"), await s.serialize());
+    const again = await VaultSession.openWithPassword(await s.serialize(), expected.password);
+    expect(again.listPasskeys()[0]!.passkey!.sign_count).toBe(8);
   });
 });
 

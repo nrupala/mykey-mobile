@@ -1,8 +1,8 @@
 # Feature matrix — MyKey web client (PWA) + Android app
 
 Exact status of every feature, as of the 1.3.0 licensing wave
-(2026-10-13), following the blob and password-rotation waves. "Deferred" means deliberately not built yet, not
-
+and the passkey wave (2026-10-13), following the blob and
+password-rotation waves. "Deferred" means deliberately not built yet, not
 broken. "Platform-blocked" means the platform cannot genuinely do
 it, the app says so in plain words, and a working fallback is
 offered instead.
@@ -35,6 +35,19 @@ offered instead.
 | Notifications for due passwords | Deferred (future work) | Deliberately not in this wave: reminders are in-app only, and the app holds no notification permission. |
 | Import from browsers (CSV) | Implemented | Chromium family (Chrome/Edge/Brave/Opera/Vivaldi/Arc/Google Password Manager) and Firefox exports are recognised by header signature; anything else gets a by-hand column mapping. Mirrors the desktop importer: (service, username) keys, same-password = duplicate (skipped), different password = conflict with a plain-language choice (keep mine / use the file's / keep both). The file is parsed locally and never uploaded; imported entries land encrypted in the vault. Other managers' formats (Bitwarden, 1Password, …) arrive through the generic mapping in this client; their dedicated parsers remain desktop-only for now. |
 | Export to CSV (readable file) | Implemented, deliberately gated | Same columns as the desktop exporter (Service, Username, Password, URL, Notes). There is no one-tap path: a warning screen states in plain words that the file is unencrypted and readable by anyone, and the export button stays disabled until the user ticks the understanding checkbox. An empty vault exports nothing. |
+
+## Passkeys
+
+| Feature | Status | Notes |
+|---|---|---|
+| Passkey storage in the vault | Implemented | Entry kind "passkey": the WebAuthn record (private key included) sits in its own blob under DEK_passkey, sealed by a core hash; a missing/mismatched seal fails the open closed. Proven both directions by the interop gate (Python fixture → TS use → Python verifies the TS assertion signature). |
+| Create a passkey (Android) | Implemented, device test pending | Via the Credential Manager provider: unlock = user verification, one plain confirmation screen in the app. Attestation is "none" (zero AAGUID) — honestly, no fake hardware attestation. ES256; EdDSA only where WebCrypto offers Ed25519. |
+| Sign in with a passkey (Android) | Implemented, device test pending | RP ID mismatch is always refused (dot-boundary suffix rule for web origins; OS binding for native Android callers). sign_count increments and persists; assertion signatures verify against the stored public key (unit + cross-client proven). Credential Manager picker flows are CI-compile-verified only — see docs/DEVICE_TEST_PASSKEYS.md. |
+| Clone warning | Implemented | Device-local sign_count high-water marks; a regression at unlock warns in plain words. Synced-vault count semantics are documented in docs/PASSKEYS.md — restored copies can legitimately trip RP-side clone detection. |
+| Passkeys in agent bundles | Never | Passkey entries are excluded from bundle targets and DEK_passkey is never bundled, in both engines. Agent passkey use is a later, separately gated design — not built. |
+| Passkeys in CSV export/import | Never (export) / protected (import) | Export skips passkey entries and says so on the export screen. Import never overwrites or merges into a passkey entry. |
+| Desktop role | Read-only + delete | Creation/use is phone-first in v1; the desktop lists passkeys and can delete them. |
+| Browser-extension bridging, CXP/CXF transfer, iOS provider | Deferred (out of scope v1) | Named here so the gap is explicit, per docs/PASSKEYS.md. |
 
 ## Portability & sync
 

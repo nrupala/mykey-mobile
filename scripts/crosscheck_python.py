@@ -156,6 +156,66 @@ check("agent bundle rebuilt by TS still enforces scope in Python",
       agent_still_works)
 
 
+def passkey_fixture_opens():
+    v = open_py(stage("fixture-passkey.mykey",
+                      (FIX / "fixture-passkey.mykey").read_bytes()))
+    keys = v.list_passkeys()
+    assert len(keys) == 1, keys
+    rec = keys[0]["passkey"]
+    want = expected["passkey"]
+    assert rec["rp_id"] == want["rp_id"], rec
+    assert rec["user_name"] == want["user_name"]
+    assert rec["credential_id"] == want["credential_id"]
+    assert rec["public_key"] == want["public_key"]
+    assert rec["sign_count"] == want["sign_count"]
+    logins = [e for e in v.list_entries() if e.get("kind") != "passkey"]
+    assert len(logins) == 1 and logins[0]["service"] == "github"
+
+
+check("python opens the passkey fixture vault (record intact)",
+      passkey_fixture_opens)
+
+
+def passkey_resaved_and_signature():
+    import base64
+    import hashlib
+
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding, PublicFormat)
+
+    v = open_py(stage("passkey-resaved.mykey",
+                      (OUT / "passkey-resaved.mykey").read_bytes()))
+    keys = v.list_passkeys()
+    assert len(keys) == 1
+    rec = keys[0]["passkey"]
+    assert rec["sign_count"] == 8, rec["sign_count"]
+
+    assertion = json.loads((OUT / "passkey-assertion.json").read_text())
+    assert assertion["credential_id"] == rec["credential_id"]
+    auth_data = base64.b64decode(assertion["authenticator_data"])
+    client_json = base64.b64decode(assertion["client_data_json"])
+    signature = base64.b64decode(assertion["signature"])
+    # authenticatorData layout: rpIdHash(32) | flags(1) | signCount(4)
+    assert auth_data[:32] == hashlib.sha256(b"example.com").digest()
+    assert int.from_bytes(auth_data[33:37], "big") == 8
+    client = json.loads(client_json)
+    assert client["type"] == "webauthn.get"
+    assert client["origin"] == "https://example.com"
+    pub_raw = base64.b64decode(rec["public_key"])
+    assert len(pub_raw) == 65 and pub_raw[0] == 0x04
+    pub = ec.EllipticCurvePublicKey.from_encoded_point(
+        ec.SECP256R1(), pub_raw)
+    signed = auth_data + hashlib.sha256(client_json).digest()
+    # Raises InvalidSignature if the TS signature does not verify.
+    pub.verify(signature, signed, ec.ECDSA(hashes.SHA256()))
+
+
+check("python opens the TS passkey-resaved vault (sign_count 8) and "
+      "VERIFIES the TS assertion signature", passkey_resaved_and_signature)
+
+
 def device_slot_preserved():
     # The raw-wrap slot the TS client adds for Android must survive a
     # Python open (unknown slots are preserved verbatim).

@@ -29,6 +29,14 @@
  * Vault v1/v2 files are NOT migrated here: the client refuses them
  * with instructions to open them once in the desktop app, which
  * performs the migration. Nothing is ever half-migrated.
+ *
+ * Passkey entries (kind "passkey") add a fourth per-entry key
+ * class: the WebAuthn record — credential PRIVATE key included —
+ * lives in a "passkey" blob under DEK_passkey, sealed by a hash in
+ * the core's passkey_hashes map (kept separate from entry_hashes
+ * so pre-passkey vaults verify byte-for-byte). DEK_passkey is
+ * never placed in an agent bundle and passkey entries are excluded
+ * from bundle targets entirely. See docs/PASSKEYS.md.
  */
 
 import { x25519 } from "@noble/curves/ed25519.js";
@@ -81,7 +89,7 @@ export const FORMAT_VERSION = 3;
 export const MIN_MASTER_PASSWORD_LENGTH = 12;
 export const MIN_GENERATED_PASSWORD_LENGTH = 16;
 const VERIFIER_LABEL = "vault-verifier-v3";
-const METADATA_FIELDS = ["service", "username", "url", "tags", "favourite", "created", "updated"] as const;
+const METADATA_FIELDS = ["service", "username", "url", "tags", "favourite", "created", "updated", "kind"] as const;
 const ENTRY_FIELDS = ["service", "username", "password", "url", "notes", "totp_secret", "tags", "favourite", "rotate_days"] as const;
 
 /** Vault-wide default password rotation period in days, matching
@@ -90,10 +98,32 @@ const ENTRY_FIELDS = ["service", "username", "password", "url", "notes", "totp_s
  * rotation fields ride in the entry's secret blob, exactly as the
  * Python engine stores them — never in metadata or a sidecar. */
 export const DEFAULT_ROTATE_DAYS = 180;
-
 export class WrongPasswordError extends Error {}
 export class VaultCorruptError extends Error {}
 export class UnsupportedVaultError extends VaultCorruptError {}
+
+/** The WebAuthn record stored (encrypted) in a passkey entry's
+ * passkey blob — field names mirror the Python engine's record
+ * contract exactly (PASSKEY_RECORD_FIELDS in mykey.py).
+ * private_key is PKCS#8 DER (base64); public_key is the raw
+ * uncompressed EC point for ES256 or the raw public key for
+ * EdDSA; credential_id / user_id / aaguid are base64. */
+export interface PasskeyRecord {
+  rp_id: string;
+  user_id: string;
+  user_name: string;
+  user_display_name: string;
+  credential_id: string;
+  alg: number;
+  public_key: string;
+  private_key: string;
+  sign_count: number;
+  transports: string[];
+  created_at: number;
+  aaguid: string;
+  backup_eligible: boolean;
+  backed_up: boolean;
+}
 
 export interface VaultEntry {
   id: string;
@@ -105,6 +135,8 @@ export interface VaultEntry {
   totp_secret: string;
   tags: string[];
   favourite: boolean;
+  kind: "login" | "passkey";
+  passkey: PasskeyRecord | null;
   created: number;
   updated: number;
   /** When the password was last set (epoch seconds), or null when
@@ -133,6 +165,7 @@ interface RawEntryObject {
   meta: SealedBlob | null;
   secret: SealedBlob | null;
   totp: SealedBlob | null;
+  passkey: SealedBlob | null;
   pending: unknown | null;
   [key: string]: unknown;
 }
@@ -185,6 +218,46 @@ export function validateRotateDays(value: number | null): number | null {
   return value;
 }
 
+/** Hash of one entry's passkey blob, sealed in the core —
+ * identical construction to the Python engine's _passkey_hash. */
+function passkeyHash(blob: SealedBlob): string {
+  const h = sha256.create();
+  h.update(utf8Encode("passkeyhash:v3"));
+  h.update(b64decode(blob.nonce));
+  h.update(b64decode(blob.ciphertext));
+  return [...h.digest()].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Validate + normalize a passkey record — mirrors the Python
+ * engine's validate_passkey_record. Throws on invalid input. */
+export function validatePasskeyRecord(record: any): PasskeyRecord {
+  if (typeof record !== "object" || record === null) throw new Error("passkey record must be an object");
+  if (typeof record.rp_id !== "string" || !record.rp_id) throw new Error("passkey record needs a non-empty rp_id");
+  for (const f of ["credential_id", "public_key", "private_key"] as const) {
+    const v = record[f];
+    if (typeof v !== "string" || !v) throw new Error(`passkey record needs ${f} (base64)`);
+    b64decode(v); // throws on invalid base64
+  }
+  const out: PasskeyRecord = {
+    rp_id: record.rp_id,
+    user_id: record.user_id ?? "",
+    user_name: record.user_name ?? "",
+    user_display_name: record.user_display_name ?? "",
+    credential_id: record.credential_id,
+    alg: Number(record.alg ?? -7),
+    public_key: record.public_key,
+    private_key: record.private_key,
+    sign_count: Number(record.sign_count ?? 0),
+    transports: Array.isArray(record.transports) && record.transports.length ? [...record.transports] : ["internal"],
+    created_at: Number(record.created_at ?? nowSeconds()),
+    aaguid: record.aaguid ?? b64encode(new Uint8Array(16)),
+    backup_eligible: record.backup_eligible !== undefined ? Boolean(record.backup_eligible) : true,
+    backed_up: record.backed_up !== undefined ? Boolean(record.backed_up) : true,
+  };
+  if (!Number.isFinite(out.sign_count) || out.sign_count < 0) throw new Error("passkey sign_count cannot be negative");
+  return out;
+}
+
 function scopeCoversEntry(scopes: string[], entry: VaultEntry): boolean {
   for (const scope of scopes) {
     if (scope === "get:*") return true;
@@ -218,7 +291,7 @@ function parseVaultFile(bytes: Uint8Array): VaultFile {
 export class VaultSession {
   private vk: Uint8Array;
   private kmeta: Uint8Array;
-  private deks = new Map<string, { pw: Uint8Array; totp: Uint8Array | null }>();
+  private deks = new Map<string, { pw: Uint8Array; totp: Uint8Array | null; passkey: Uint8Array | null }>();
   private core: CoreObject;
   private slots: Slot[];
   private inboxPubB64: string;
@@ -253,11 +326,12 @@ export class VaultSession {
     this.inboxPubB64 = init.inboxPubB64;
     this.vaultId = init.vaultId;
     this.auditSealed = Boolean(init.core.audit_head);
-    const coreDeks = (init.core.deks ?? {}) as Record<string, { pw: string; totp: string | null }>;
+    const coreDeks = (init.core.deks ?? {}) as Record<string, { pw: string; totp: string | null; passkey?: string | null }>;
     for (const [eid, d] of Object.entries(coreDeks)) {
       this.deks.set(eid, {
         pw: b64decode(d.pw),
         totp: d.totp ? b64decode(d.totp) : null,
+        passkey: d.passkey ? b64decode(d.passkey) : null,
       });
     }
   }
@@ -297,6 +371,7 @@ export class VaultSession {
       vaultId: file.vault_id,
     });
     const hashes = (core.entry_hashes ?? {}) as Record<string, string>;
+    const passkeyHashes = (core.passkey_hashes ?? {}) as Record<string, string>;
     for (const obj of file.entries ?? []) {
       if (obj.pending != null) {
         session.rawPending.push(obj);
@@ -330,6 +405,23 @@ export class VaultSession {
       // to the entry's creation time when the record carries one,
       // else null ("date not recorded") — the Python engine's rule.
       const createdRaw = typeof meta.created === "number" ? meta.created : null;
+      let passkey: PasskeyRecord | null = null;
+      let kind: "login" | "passkey" = meta.kind === "passkey" ? "passkey" : "login";
+      if (obj.passkey != null) {
+        const sealed = passkeyHashes[eid];
+        if (sealed === undefined || sealed !== passkeyHash(obj.passkey)) {
+          throw new VaultCorruptError(
+            `entry ${eid} passkey ciphertext does not match the hash sealed in the vault core`,
+          );
+        }
+        if (!dek.passkey) {
+          throw new VaultCorruptError(`entry ${eid} has a passkey blob but no passkey data key in the core`);
+        }
+        const pkBytes = await aesGcmDecrypt(dek.passkey, obj.passkey, aad("passkey", eid));
+        if (pkBytes === null) throw new VaultCorruptError(`entry ${eid} passkey failed to decrypt`);
+        passkey = validatePasskeyRecord(JSON.parse(utf8Decode(pkBytes)));
+        kind = "passkey";
+      }
       session.entriesList.push({
         id: eid,
         service: meta.service ?? "",
@@ -348,6 +440,8 @@ export class VaultSession {
             : createdRaw,
         rotate_days:
           typeof secret.rotate_days === "number" ? secret.rotate_days : null,
+        kind,
+        passkey,
       });
     }
     return session;
@@ -424,6 +518,7 @@ export class VaultSession {
       deks: {},
       origins: {},
       entry_hashes: {},
+      passkey_hashes: {},
       inbox_priv: b64encode(inboxPriv),
       vault_id: vaultId,
       anchor_seq: 0,
@@ -471,10 +566,23 @@ export class VaultSession {
   async serialize(): Promise<Uint8Array> {
     const entryObjects: RawEntryObject[] = [];
     const hashes: Record<string, string> = {};
+    const pkHashes: Record<string, string> = { ...(this.core.passkey_hashes ?? {}) };
     for (const entry of this.entriesList) {
       const dek = this.deks.get(entry.id)!;
       const meta: Record<string, unknown> = {};
       for (const f of METADATA_FIELDS) meta[f] = entry[f];
+      let passkeyBlob: SealedBlob | null = null;
+      if (entry.kind === "passkey" && entry.passkey) {
+        if (!dek.passkey) throw new VaultCorruptError(`passkey entry ${entry.id} has no passkey data key`);
+        passkeyBlob = await aesGcmEncrypt(
+          dek.passkey,
+          utf8Encode(JSON.stringify(entry.passkey)),
+          aad("passkey", entry.id),
+        );
+        pkHashes[entry.id] = passkeyHash(passkeyBlob);
+      } else {
+        delete pkHashes[entry.id];
+      }
       const obj: RawEntryObject = {
         id: entry.id,
         meta: await aesGcmEncrypt(this.kmeta, utf8Encode(JSON.stringify(meta)), aad("meta", entry.id)),
@@ -495,6 +603,7 @@ export class VaultSession {
               aad("totp", entry.id),
             )
           : null,
+        passkey: passkeyBlob,
         pending: null,
       };
       hashes[entry.id] = entryHash(obj);
@@ -502,9 +611,9 @@ export class VaultSession {
     }
     for (const raw of this.rawPending) entryObjects.push(raw);
     // Refresh the core's key tables from live state.
-    const deksObj: Record<string, { pw: string; totp: string | null }> = {};
+    const deksObj: Record<string, { pw: string; totp: string | null; passkey: string | null }> = {};
     for (const [eid, d] of this.deks) {
-      deksObj[eid] = { pw: b64encode(d.pw), totp: d.totp ? b64encode(d.totp) : null };
+      deksObj[eid] = { pw: b64encode(d.pw), totp: d.totp ? b64encode(d.totp) : null, passkey: d.passkey ? b64encode(d.passkey) : null };
     }
     this.core.deks = deksObj;
     this.core.entry_hashes = { ...(this.core.entry_hashes ?? {}), ...hashes };
@@ -513,6 +622,13 @@ export class VaultSession {
         delete this.core.entry_hashes[eid];
       }
     }
+    // Passkey hashes: keep pending entries untouched, drop deleted.
+    for (const eid of Object.keys(pkHashes)) {
+      if (!this.entriesList.some((e) => e.id === eid) && !this.rawPending.some((r) => r.id === eid)) {
+        delete pkHashes[eid];
+      }
+    }
+    this.core.passkey_hashes = pkHashes;
     const coreBlob = await aesGcmEncrypt(
       this.vk,
       utf8Encode(JSON.stringify(this.core)),
@@ -546,6 +662,7 @@ export class VaultSession {
       const targets: Record<string, unknown> = {};
       const services: Record<string, string> = {};
       for (const entry of this.entriesList) {
+        if (entry.kind === "passkey") continue; // passkeys are NEVER agent targets
         if (!scopeCoversEntry(scopes, entry)) continue;
         const meta: Record<string, unknown> = {};
         for (const f of METADATA_FIELDS) meta[f] = entry[f];
@@ -603,7 +720,10 @@ export class VaultSession {
   }
 
   async addEntry(
-    input: Omit<VaultEntry, "id" | "created" | "updated" | "password_set_at" | "rotate_days"> & {
+    input: Omit<
+      VaultEntry,
+      "id" | "created" | "updated" | "password_set_at" | "rotate_days" | "kind" | "passkey"
+    > & {
       rotate_days?: number | null;
     },
   ): Promise<VaultEntry> {
@@ -631,6 +751,8 @@ export class VaultSession {
     const entry: VaultEntry = {
       ...input,
       tags: [...input.tags],
+      kind: "login",
+      passkey: null,
       id: uuidHex(),
       created: ts,
       updated: ts,
@@ -641,10 +763,78 @@ export class VaultSession {
     this.deks.set(entry.id, {
       pw: randomBytes(32),
       totp: entry.totp_secret ? randomBytes(32) : null,
+      passkey: null,
     });
     (this.core.origins as Record<string, string>)[entry.id] = "human";
     this.entriesList.push(entry);
     return { ...entry };
+  }
+
+  /** Add a passkey record as a new entry. Human-only by construction
+   * (this session is a human unlock). Passkeys count toward the
+   * entry cap exactly like logins — they are ordinary entries in
+   * listEntries(); any licensing cap applied by the app layer on
+   * entry count therefore includes them automatically. */
+  async addPasskeyRecord(record: PasskeyRecord, notes = ""): Promise<VaultEntry> {
+    const rec = validatePasskeyRecord(record);
+    if (
+      this.entriesList.some(
+        (e) => e.service === rec.rp_id && e.username === rec.user_name,
+      )
+    ) {
+      throw new Error(`entry already exists: ${rec.rp_id} (${rec.user_name})`);
+    }
+    // Also refuse a duplicate credential_id under a different user.
+    if (this.entriesList.some((e) => e.passkey?.credential_id === rec.credential_id)) {
+      throw new Error("a passkey with this credential id already exists");
+    }
+    const entry: VaultEntry = {
+      id: uuidHex(),
+      service: rec.rp_id,
+      username: rec.user_name,
+      password: "",
+      url: "",
+      notes,
+      totp_secret: "",
+      tags: [],
+      favourite: false,
+      password_set_at: null,
+      rotate_days: null,
+      kind: "passkey",
+      passkey: rec,
+      created: rec.created_at,
+      updated: rec.created_at,
+    };
+    this.deks.set(entry.id, {
+      pw: randomBytes(32),
+      totp: null,
+      passkey: randomBytes(32),
+    });
+    (this.core.origins as Record<string, string>)[entry.id] = "human";
+    this.entriesList.push(entry);
+    return { ...entry, passkey: entry.passkey ? { ...entry.passkey } : null };
+  }
+
+  listPasskeys(): VaultEntry[] {
+    return this.listEntries().filter((e) => e.kind === "passkey");
+  }
+
+  findPasskeyByCredentialId(credentialIdB64: string): VaultEntry | null {
+    const e = this.entriesList.find((x) => x.kind === "passkey" && x.passkey?.credential_id === credentialIdB64);
+    return e ? { ...e, tags: [...e.tags], passkey: e.passkey ? { ...e.passkey } : null } : null;
+  }
+
+  /** Advance a passkey's sign_count. Forward only — a regression
+   * is refused here; clone detection (comparing against a device
+   * high-water mark) lives in passkey.ts. Caller persists. */
+  updatePasskeySignCount(entryId: string, count: number): void {
+    const entry = this.entriesList.find((e) => e.id === entryId);
+    if (!entry || entry.kind !== "passkey" || !entry.passkey) throw new Error(`no passkey entry: ${entryId}`);
+    if (count < entry.passkey.sign_count) {
+      throw new Error("passkey sign_count cannot move backwards");
+    }
+    entry.passkey.sign_count = count;
+    entry.updated = nowSeconds();
   }
 
   async updateEntry(id: string, fields: Partial<Omit<VaultEntry, "id" | "created">>): Promise<VaultEntry> {
@@ -679,6 +869,7 @@ export class VaultSession {
     const [removed] = this.entriesList.splice(idx, 1);
     this.deks.delete(id);
     delete (this.core.origins as Record<string, string>)[id];
+    if (this.core.passkey_hashes) delete (this.core.passkey_hashes as Record<string, string>)[id];
     return { ...removed! };
   }
 
@@ -839,6 +1030,8 @@ export class VaultSession {
       const entry: VaultEntry = {
         ...rec,
         tags: [...rec.tags],
+        kind: "login",
+        passkey: null,
         id: uuidHex(),
         created: ts,
         updated: ts,
@@ -850,11 +1043,19 @@ export class VaultSession {
       this.deks.set(entry.id, {
         pw: randomBytes(32),
         totp: entry.totp_secret ? randomBytes(32) : null,
+        passkey: null,
       });
       (this.core.origins as Record<string, string>)[entry.id] = "human";
       this.entriesList.push(entry);
     };
     for (const rec of fresh) {
+      // A fresh key cannot collide with a passkey (classifyImport
+      // already keyed it), but guard anyway: never create a login
+      // on top of a passkey's (service, username).
+      const clash = this.entriesList.find(
+        (e) => e.kind === "passkey" && e.service.toLowerCase() === rec.service.toLowerCase() && e.username.toLowerCase() === rec.username.toLowerCase(),
+      );
+      if (clash) { stats.skippedConflicts++; continue; }
       if (allowance <= 0) {
         stats.heldBack++;
         continue;
@@ -864,12 +1065,17 @@ export class VaultSession {
       stats.added++;
     }
     for (const rec of conflicts) {
+      const existing = this.entriesList.find(
+        (e) =>
+          e.service.toLowerCase() === rec.service.toLowerCase() &&
+          e.username.toLowerCase() === rec.username.toLowerCase(),
+      );
+      // A passkey entry is NEVER overwritten or merged into by CSV import.
+      if (existing?.kind === "passkey") {
+        stats.skippedConflicts++;
+        continue;
+      }
       if (onConflict === "overwrite") {
-        const existing = this.entriesList.find(
-          (e) =>
-            e.service.toLowerCase() === rec.service.toLowerCase() &&
-            e.username.toLowerCase() === rec.username.toLowerCase(),
-        );
         if (existing) {
           await this.updateEntry(existing.id, { ...rec });
           // Import overwrite: the replacement password's age is
@@ -1014,6 +1220,7 @@ export class VaultSession {
     for (const d of this.deks.values()) {
       d.pw.fill(0);
       d.totp?.fill(0);
+      d.passkey?.fill(0);
     }
     this.deks.clear();
     this.entriesList = [];
