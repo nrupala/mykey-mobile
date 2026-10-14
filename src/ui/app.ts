@@ -428,12 +428,20 @@ async function renderLocked(notice?: string): Promise<void> {
     );
   }
 
-  // Help must be reachable while locked out — the FAQ is where a
-  // user with a forgotten password or a lost phone lands.
-  const helpRow = el("div", { class: "action-stack" });
-  helpRow.append(button("Help and questions", () => renderHelp("locked")));
-  root.append(helpRow);
+  if (!state.storedBytes) {
+    // Help must be reachable while locked out — the FAQ is where a
+    // user with a forgotten password or a lost phone lands. With a
+    // vault present, the button sits inside the unlock card directly
+    // under the unlock controls instead (see unlockForm).
+    root.append(helpButtonRow());
+  }
   render(root);
+}
+
+function helpButtonRow(): HTMLElement {
+  const row = el("div", { class: "action-stack" });
+  row.append(button("Help and questions", () => renderHelp("locked")));
+  return row;
 }
 
 // ------------------------------------------------------------------
@@ -580,6 +588,12 @@ async function unlockForm(): Promise<HTMLElement> {
   });
 
   box.append(form, toggle, status);
+
+  // Help directly under the unlock controls: on a phone, the
+  // secondary actions below push it past the fold when it comes
+  // last, and a locked-out user never sees it (owner's report,
+  // 2026-10-14).
+  box.append(helpButtonRow());
 
   const other = el("div", { class: "action-stack" });
   other.append(

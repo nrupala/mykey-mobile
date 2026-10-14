@@ -225,6 +225,41 @@ test("lock on hide: hidden tab locks the vault", async ({ page }) => {
   });
   await expect(page.getByRole("heading", { name: "Your vault is locked" })).toBeVisible();
 });
+test("help sits under the unlock controls on the locked screen", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await createVaultAndEnter(page);
+  await page.getByRole("button", { name: "Lock now" }).click();
+  await expect(page.getByRole("heading", { name: "Your vault is locked" })).toBeVisible();
+
+  const help = page.getByRole("button", { name: "Help and questions" });
+  await expect(help).toBeVisible();
+
+  // DOM order: Help comes before every secondary action, so it is
+  // not pushed below the fold by them (owner's report, 2026-10-14).
+  const positions = await page.evaluate(() => {
+    const labels = [
+      "Help and questions",
+      "Open a different vault file",
+      "Restore from a backup package",
+      "Remove this vault from this device",
+    ];
+    const buttons = Array.from(document.querySelectorAll("button"));
+    return labels.map((label) =>
+      buttons.findIndex((b) => b.textContent?.trim() === label),
+    );
+  });
+  expect(positions.every((i) => i >= 0)).toBe(true);
+  expect(positions[0]).toBeLessThan(positions[1]);
+  expect(positions[0]).toBeLessThan(positions[2]);
+  expect(positions[0]).toBeLessThan(positions[3]);
+
+  // And it is inside the initial viewport at a phone size.
+  const box = await help.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+});
+
 test("help and about are reachable from the welcome screen", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Welcome to MyKey" })).toBeVisible();
