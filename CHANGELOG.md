@@ -6,6 +6,15 @@ is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
+- **New app logo — the refined key.** The placeholder key is replaced
+  by the product mark (owner pick, 2026-10-14): a two-tone gold key
+  with a double-ring bow on deep navy (#111D54), drawn as clean
+  vector masters (`public/brand/logo-tile.svg`, `logo-key.svg`) and
+  rendered into every icon slot — PWA icons (incl. maskable),
+  apple-touch, the extension icons, the Android adaptive foreground
+  (navy background colour updated to match), and the legacy mipmaps.
+  The web manifest theme/background colours move to the same navy.
+
 - **Help on the locked screen, above the fold.** The "Help and
   questions" button on the locked screen moved from the very bottom
   to directly under the unlock controls, before the secondary
