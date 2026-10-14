@@ -6,6 +6,12 @@ is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
+- **Help on the locked screen, above the fold.** The "Help and
+  questions" button on the locked screen moved from the very bottom
+  to directly under the unlock controls, before the secondary
+  actions — on a phone it previously fell below the fold and a
+  locked-out user never saw it.
+
 Android autofill wave.
 
 - **Autofill service (Android).** MyKey can now fill passwords in
