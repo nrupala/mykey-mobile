@@ -109,6 +109,8 @@ import {
 } from "../platform/clipboard.js";
 import { verifyToken } from "../vault/licence.js";
 import { buyLicence, tipJar } from "../platform/purchase.js";
+import { digestHex, HomeCopyService } from "../vault/homecopy.js";
+import { getHomeCopyAdapter } from "../platform/homecopy.js";
 import {
   clearPasskeyWarmIndex,
   completePasskeyRequest,
@@ -234,6 +236,23 @@ interface AppState {
   syncTargetId: string | null;
   autoLockTimer: number | null;
   totpTimer: number | null;
+  /** Vault home (homecopy wave): set at boot when the copy
+   * inside the app and the copy in the home folder both moved
+   * since they last agreed. The user unlocks the copy they
+   * trust; the other is preserved as a dated file, never
+   * deleted, and the conflict is settled at entry. */
+  homeConflict: {
+    cacheBytes: Uint8Array;
+    homeBytes: Uint8Array;
+    folderName: string;
+  } | null;
+  homeUnlockTarget: "cache" | "home";
+  /** One-line home-copy notice (a failed write), shown once at
+   * the next unlock screen. */
+  homeNotice: string | null;
+  /** No vault inside the app, but a home folder is granted and
+   * holds one: the recovery offer on the welcome screen. */
+  homeRecovery: { folderName: string; bytes: Uint8Array } | null;
 }
 
 let pendingAutofill: PendingAutofill | null = null;
@@ -246,7 +265,26 @@ const state: AppState = {
   syncTargetId: null,
   autoLockTimer: null,
   totpTimer: null,
+  homeConflict: null,
+  homeUnlockTarget: "cache",
+  homeNotice: null,
+  homeRecovery: null,
 };
+
+/** The exact bytes the current session was unlocked from. The
+ * vault-home conflict resolution keys off this: whichever copy
+ * the user opened is the winner. */
+let lastUnlockBytes: Uint8Array | null = null;
+
+/** The vault's home outside the app (Android only; inert
+ * everywhere else). Config and bookkeeping live in the store;
+ * the folder grant lives in the native plugin. */
+const homeCopy = new HomeCopyService(getHomeCopyAdapter(), {
+  getConfig: () => store.getMirrorConfig(),
+  setConfig: (c) => store.setMirrorConfig(c),
+  getBook: () => store.getMirrorBook(),
+  setBook: (b) => store.setMirrorBook(b),
+});
 
 const main = () => document.querySelector("main")!;
 
@@ -278,6 +316,10 @@ async function persist(): Promise<void> {
   const bytes = await state.session.serialize();
   state.storedBytes = bytes;
   await store.setVaultBytes(bytes);
+  // The vault's home outside the app gets the same ciphertext on
+  // every save. It never throws and never blocks this save; a
+  // failure is recorded and surfaced (see homecopy.ts).
+  await homeCopy.afterPersist(bytes);
   if (state.syncHandle && !syncGate("push")) {
     await syncFolderPush(state.syncHandle, bytes).catch(() => false);
   }
@@ -321,9 +363,31 @@ async function cancelPendingAutofill(): Promise<void> {
   }
 }
 
-/** Route after entering the vault: a pending autofill request takes
- * over the home screen; everything else lands as usual. */
-function afterEnterVault(): void {
+/** Route after entering the vault. First entry of a vault on the
+ * Android app offers it a home outside the app (once per vault;
+ * Settings keeps a plain status line until it is set up). A
+ * pending autofill request is time-sensitive and always wins —
+ * the offer waits for a calmer entry. */
+async function afterEnterVault(): Promise<void> {
+  try {
+    if (
+      !pendingAutofill &&
+      state.session &&
+      (await homeCopy.offerNeeded(state.session.vaultId))
+    ) {
+      await homeCopy.markOffered(state.session.vaultId);
+      renderHomeSetup(() => enterVaultHome());
+      return;
+    }
+  } catch {
+    /* the offer must never block entering the vault */
+  }
+  enterVaultHome();
+}
+
+/** Where an entered vault lands: a pending autofill request
+ * takes over the home screen; everything else lands as usual. */
+function enterVaultHome(): void {
   void reportAutofillSession(
     true,
     state.settings.autoLockMinutes > 0
@@ -354,6 +418,10 @@ function lock(notice?: string): void {
   state.session?.lock();
   state.session = null;
   stopTimers();
+  // Locking is a save point for the home copy too (the file on
+  // the device is already current — every change persists — so
+  // this is a cheap no-op unless a write is owed a retry).
+  if (state.storedBytes) void homeCopy.afterPersist(state.storedBytes);
   // Locking clears a copied secret right away — it never waits
   // for the clipboard timer (platform/clipboard.ts holds the rule).
   void clipboardGuard.clearNow();
@@ -396,6 +464,11 @@ async function copySecret(value: string, what: string, status: HTMLElement): Pro
 async function renderLocked(notice?: string): Promise<void> {
   const root = el("section", { class: "screen" });
   if (notice) root.append(el("p", { class: "alert alert-info", role: "status" }, notice));
+  // A home-copy notice (a failed home write, a copy that won)
+  // is shown once, here at unlock — never silently.
+  const homeNote = state.homeNotice;
+  state.homeNotice = null;
+  if (homeNote) root.append(el("p", { class: "alert alert-info", role: "status" }, homeNote));
   root.append(el("h2", {}, state.storedBytes ? "Your vault is locked" : "Welcome to MyKey"));
   root.append(
     el(
@@ -408,11 +481,37 @@ async function renderLocked(notice?: string): Promise<void> {
   );
 
   if (state.storedBytes) {
+    if (state.homeConflict) root.append(homeConflictCard());
     root.append(await unlockForm());
   } else {
     const actions = el("div", { class: "action-stack" });
+    if (state.homeRecovery) {
+      // The vault's home outlived the app copy (fresh install,
+      // or the inside copy was removed): offer it FIRST.
+      const rec = state.homeRecovery;
+      actions.append(
+        button(`Open the vault found in “${rec.folderName}”`, () => {
+          renderHomeOpen(rec.bytes, rec.folderName);
+        }, "primary"),
+      );
+    }
+    if (homeCopy.supported()) {
+      actions.append(
+        button("I have a vault in a folder", async () => {
+          const probe = await homeCopy.pickAndProbe(null);
+          if (!probe) return;
+          if (probe.kind === "found" && probe.bytes) {
+            renderHomeOpen(probe.bytes, probe.folderName);
+          } else {
+            void renderLocked(
+              `No vault file was found in “${probe.folderName}”. If your vault's home folder is somewhere else, try again and pick that one.`,
+            );
+          }
+        }),
+      );
+    }
     actions.append(
-      button("Create a new vault", () => renderCreate(), "primary"),
+      button("Create a new vault", () => renderCreate(), state.homeRecovery ? "plain" : "primary"),
       button("Open a vault file", () => renderOpenFile()),
       button("Restore from a backup package", () => renderRestore()),
     );
@@ -442,6 +541,164 @@ function helpButtonRow(): HTMLElement {
   const row = el("div", { class: "action-stack" });
   row.append(button("Help and questions", () => renderHelp("locked")));
   return row;
+}
+
+// ------------------------------------------------------------------
+// The vault's home (Android): offer, conflict, recovery
+// ------------------------------------------------------------------
+
+/** Shown above the unlock form when the copy inside the app and
+ * the copy in the home folder both changed since they last
+ * agreed. The user picks which copy to open; the other is
+ * preserved as a dated file in the folder when they unlock. */
+function homeConflictCard(): HTMLElement {
+  const conflict = state.homeConflict!;
+  const card = el("div", { class: "card" });
+  card.append(el("h3", {}, "Two copies of your vault"));
+  card.append(
+    el("p", {},
+      `The copy inside the app and the copy in its home folder (“${conflict.folderName}”) have both changed since they last agreed. ` +
+      "Choose which copy to open below. The other copy is kept in the folder as a dated file — nothing is deleted."),
+  );
+  card.append(el("p", { class: "status" },
+    state.homeUnlockTarget === "home"
+      ? `You will open: the copy from “${conflict.folderName}”.`
+      : "You will open: the copy on this device."));
+  const row = el("div", { class: "action-stack" });
+  row.append(
+    button("Open the copy on this device", () => {
+      state.homeUnlockTarget = "cache";
+      void renderLocked();
+    }),
+    button(`Open the copy from “${conflict.folderName}”`, () => {
+      state.homeUnlockTarget = "home";
+      void renderLocked();
+    }),
+  );
+  card.append(row);
+  return card;
+}
+
+/** The home setup offer: after a vault is first opened on the
+ * Android app, and from Settings ("Give your vault a home" /
+ * "Change folder"). `next` continues to wherever the caller was
+ * headed. Skippable, always — Settings keeps the plain status
+ * line until a folder is set. */
+function renderHomeSetup(next: () => void): void {
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Give your vault a home"));
+  root.append(
+    el("p", { class: "lede" },
+      "Your vault is a file. MyKey is its opener. The file alone opens nothing — it is encrypted, and only your master password opens it."),
+    el("p", {},
+      "Choose a folder outside the app — for example, a folder in your cloud drive. MyKey keeps your vault file there (MyKey/vault.mykey) and updates it on every save. " +
+      "If the app is ever removed, the file stays where it is, and MyKey finds it again when you reinstall. The copy inside the app stays as a working copy, so the app still opens when the folder can't be reached."),
+  );
+  const status = el("p", { class: "status", "aria-live": "polite" });
+  const choose = button("Choose a folder", async () => {
+    const current =
+      state.storedBytes ?? (state.session ? await state.session.serialize() : null);
+    if (!current) {
+      next();
+      return;
+    }
+    const probe = await homeCopy.pickAndProbe(current);
+    if (!probe) {
+      status.textContent =
+        "No folder was chosen. Nothing changed — you can set this up any time in Settings.";
+      return;
+    }
+    if (probe.kind === "different-vault") {
+      await homeCopy.abandonPickedFolder();
+      status.textContent =
+        `The folder “${probe.folderName}” already holds a different vault's home file, so it can't be this vault's home. ` +
+        "MyKey wrote nothing there. Pick a different folder, or tap “Not now”.";
+      return;
+    }
+    if (probe.kind === "same-vault-diff") {
+      choose.disabled = true;
+      const decide = el("div", { class: "action-stack" });
+      decide.append(
+        el("p", {},
+          `That folder already holds a home file for this same vault, but the two copies differ. Which copy should be the vault's home? ` +
+          "The other one is kept in the folder as a dated file — nothing is lost either way."),
+        button("Use the folder's copy", async () => {
+          const homeBytes = await homeCopy.completeSetup(current, probe, "home");
+          if (homeBytes) {
+            // The open session is the losing copy: drop it and
+            // let the user unlock the copy that won.
+            state.session?.lock();
+            state.session = null;
+            state.storedBytes = homeBytes;
+            await store.setVaultBytes(homeBytes);
+            void renderLocked(
+              "The folder's copy is now the vault on this device. Unlock to open it.",
+            );
+          } else {
+            next();
+          }
+        }, "primary"),
+        button("Make this device's copy the home", async () => {
+          await homeCopy.completeSetup(current, probe, "device");
+          next();
+        }),
+      );
+      root.append(decide);
+      return;
+    }
+    try {
+      await homeCopy.completeSetup(current, probe);
+      next();
+    } catch {
+      status.textContent =
+        "That folder couldn't be used. Your vault is safe in the app — you can try again in Settings.";
+    }
+  }, "primary");
+  root.append(choose, button("Not now", () => next()), status);
+  render(root);
+}
+
+/** Open a vault file found in its home folder (the recovery
+ * flow): password only — the same honesty as opening any vault
+ * file. Success adopts it as the device copy and keeps the
+ * folder as its home. */
+function renderHomeOpen(bytes: Uint8Array, folderName: string): void {
+  const root = el("section", { class: "screen" });
+  root.append(el("h2", {}, "Open the vault from its home"));
+  root.append(
+    el("p", { class: "lede" },
+      `MyKey found your vault file in “${folderName}”. Enter your master password to open it. ` +
+      "It becomes the vault on this device, and its home stays in that folder."),
+  );
+  const error = el("p", { class: "alert alert-error hidden", role: "alert" });
+  const pw = input({ type: "password", autocomplete: "current-password" });
+  const form = el("form", { class: "form" });
+  form.append(field("Master password", pw), error);
+  const submit = button("Open this vault", async () => {}, "primary");
+  submit.type = "submit";
+  form.append(submit, button("Back", () => void renderLocked()));
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    error.classList.add("hidden");
+    try {
+      const session = await VaultSession.openWithPassword(bytes, pw.value);
+      state.storedBytes = bytes;
+      await store.setVaultBytes(bytes);
+      lastUnlockBytes = bytes;
+      await homeCopy.adoptFromHome(bytes, folderName);
+      state.homeRecovery = null;
+      pw.value = "";
+      await enterVault(session);
+    } catch (err) {
+      error.textContent =
+        err instanceof WrongPasswordError
+          ? "That password doesn't match this vault. Please try again."
+          : errorText(err);
+      error.classList.remove("hidden");
+    }
+  });
+  root.append(form);
+  render(root);
 }
 
 // ------------------------------------------------------------------
@@ -500,6 +757,18 @@ function renderAbout(back: () => void): void {
   render(root);
 }
 
+/** Which bytes an unlock attempt opens: normally the copy
+ * inside the app; during a home conflict, the copy the user
+ * picked on the conflict card. */
+function activeBytes(): Uint8Array | null {
+  if (state.homeConflict) {
+    return state.homeUnlockTarget === "home"
+      ? state.homeConflict.homeBytes
+      : state.homeConflict.cacheBytes;
+  }
+  return state.storedBytes;
+}
+
 async function unlockForm(): Promise<HTMLElement> {
   const box = el("div", { class: "card" });
   const error = el("p", { class: "alert alert-error hidden", role: "alert" });
@@ -516,11 +785,13 @@ async function unlockForm(): Promise<HTMLElement> {
           return;
         }
         try {
+          const src = activeBytes()!;
           const session = await VaultSession.openWithWrapKey(
-            state.storedBytes!,
+            src,
             DEVICE_SLOT_ID,
             b64decode(keyB64),
           );
+          lastUnlockBytes = src;
           await enterVault(session);
         } catch {
           error.textContent =
@@ -568,10 +839,12 @@ async function unlockForm(): Promise<HTMLElement> {
     error.classList.add("hidden");
     status.textContent = "Unlocking… this can take a few seconds.";
     try {
+      const src = activeBytes()!;
       const session =
         mode === "password"
-          ? await VaultSession.openWithPassword(state.storedBytes!, password.value)
-          : await VaultSession.openWithPhrase(state.storedBytes!, phrase.value);
+          ? await VaultSession.openWithPassword(src, password.value)
+          : await VaultSession.openWithPhrase(src, phrase.value);
+      lastUnlockBytes = src;
       password.value = "";
       phrase.value = "";
       await enterVault(session);
@@ -605,6 +878,13 @@ async function unlockForm(): Promise<HTMLElement> {
       )) return;
       await store.clearVault();
       await store.clearLastBackupAt();
+      // The vault's home file in its folder is NOT touched —
+      // removing the app copy never deletes the outside file.
+      // Only the device-local home bookkeeping goes.
+      await store.clearMirrorConfig();
+      await store.clearMirrorBook();
+      state.homeConflict = null;
+      state.homeRecovery = null;
       state.storedBytes = null;
       if (state.settings.deviceSlotEnabled) {
         await removeDeviceWrapKey();
@@ -676,7 +956,7 @@ function renderPhraseSetup(session: VaultSession, firstTime: boolean): void {
   const grid = el("ol", { class: "phrase-grid" });
   const done = button(firstTime ? "I've saved my phrase — open my vault" : "Done", async () => {
     await persist();
-    afterEnterVault();
+    await afterEnterVault();
   }, "primary");
   done.disabled = true;
   const confirmBox = el("input", { type: "checkbox" }) as HTMLInputElement;
@@ -743,6 +1023,11 @@ function renderOpenFile(): void {
       }
       state.storedBytes = bytes;
       await store.setVaultBytes(bytes);
+      lastUnlockBytes = bytes;
+      // A vault adopted by hand becomes canonical — the home
+      // copy follows it (a different vault's home is untouched).
+      await homeCopy.adopt(bytes);
+      state.homeConflict = null;
       pw.value = "";
       await enterVault(session);
     } catch (err) {
@@ -818,6 +1103,9 @@ function renderRestore(): void {
     const session = await VaultSession.openWithPassword(result.vaultBytes, pw.value);
     state.storedBytes = result.vaultBytes;
     await store.setVaultBytes(result.vaultBytes);
+    lastUnlockBytes = result.vaultBytes;
+    await homeCopy.adopt(result.vaultBytes);
+    state.homeConflict = null;
     await store.setLastBackupAt(meta.createdAt);
     phrase.value = "";
     code.value = "";
@@ -1326,6 +1614,37 @@ async function applyLicenceState(session: VaultSession): Promise<void> {
 }
 
 async function enterVault(session: VaultSession): Promise<void> {
+  // Vault home: settle a copies conflict before anything else.
+  // The copy the user just opened wins; the other is preserved
+  // as a dated file in the home folder. If the device copy
+  // moved on by other means since the conflict was recorded,
+  // the record no longer describes the live copies — re-baseline
+  // instead. Neither path may block entry.
+  if (state.homeConflict && lastUnlockBytes) {
+    const conflict = state.homeConflict;
+    try {
+      const currentDigest = state.storedBytes ? digestHex(state.storedBytes) : null;
+      const stillLive =
+        currentDigest === digestHex(conflict.cacheBytes) ||
+        currentDigest === digestHex(conflict.homeBytes);
+      if (!stillLive && state.storedBytes) {
+        await homeCopy.abandonConflict(state.storedBytes);
+      } else {
+        const winner =
+          digestHex(lastUnlockBytes) === digestHex(conflict.homeBytes)
+            ? "home"
+            : "device";
+        await homeCopy.resolveConflict(winner, conflict.cacheBytes, conflict.homeBytes);
+        if (winner === "home") {
+          state.storedBytes = conflict.homeBytes;
+          await store.setVaultBytes(conflict.homeBytes);
+        }
+      }
+      state.homeConflict = null;
+    } catch {
+      /* the conflict stays recorded for the next unlock */
+    }
+  }
   state.session = session;
   await applyLicenceState(session);
   if (session.needsPersist()) await persist();
@@ -1359,7 +1678,7 @@ async function enterVault(session: VaultSession): Promise<void> {
     renderPasskeyRequest(pending);
     return;
   }
-  afterEnterVault();
+  await afterEnterVault();
 }
 
 // ------------------------------------------------------------------
@@ -1977,6 +2296,53 @@ function renderLicenceKey(): void {
   armAutoLock();
 }
 
+/** The vault's home, in Settings: the status in plain words and
+ * the few actions that belong with it. Android app only — the
+ * caller adds this section solely when a home copy can exist.
+ * Turning it off never deletes the outside file: the status
+ * line says so, and deleting it is the user's own act in their
+ * file manager. */
+function homeSettingsSection(): HTMLElement {
+  const box = el("div", { class: "action-stack" });
+  box.append(el("h3", {}, "Your vault's home"));
+  const line = el("p", { class: "status", "aria-live": "polite" }, "Checking…");
+  box.append(line);
+  const row = el("div", { class: "action-stack" });
+  box.append(row);
+  void (async () => {
+    const st = await homeCopy.status();
+    line.textContent = st.line;
+    if (st.kind === "not-setup") {
+      row.append(
+        button("Give your vault a home", () =>
+          renderHomeSetup(() => renderUnlocked()), "primary"),
+      );
+    } else if (st.kind === "ok" || st.kind === "error") {
+      row.append(
+        button("Change folder", () => renderHomeSetup(() => renderUnlocked())),
+        button("Turn off", async () => {
+          await homeCopy.setEnabled(false, null);
+          renderUnlocked();
+        }),
+      );
+    } else if (st.kind === "off") {
+      row.append(
+        button("Turn on", async () => {
+          await homeCopy.setEnabled(true, state.storedBytes);
+          renderUnlocked();
+        }, "primary"),
+        button("Change folder", () => renderHomeSetup(() => renderUnlocked())),
+      );
+    } else if (st.kind === "different-vault") {
+      row.append(
+        button("Change folder", () => renderHomeSetup(() => renderUnlocked())),
+      );
+    }
+    // "conflict": the line explains; it is settled at unlock.
+  })();
+  return box;
+}
+
 function autofillSettingsSection(): HTMLElement {
   const box = el("div", { class: "action-stack" });
   box.append(el("h3", {}, "Autofill in other apps"));
@@ -2346,13 +2712,16 @@ function settingsPanel(): HTMLElement {
         )) return;
         state.storedBytes = bytes;
         await store.setVaultBytes(bytes);
+        await homeCopy.adopt(bytes);
+        state.homeConflict = null;
         lock("Vault replaced from your sync folder. Unlock to open it.");
       }),
     );
   } else if (isNativeApp()) {
-    // The Android app has no folder picker (the WebView does not
-    // provide one), so sync here is an honest file flow through
-    // the user's own cloud app — labelled as exactly that.
+    // The WebView has no folder picker of its own. The vault's
+    // home (the section above) uses the native folder bridge;
+    // sync here stays an honest file flow through the user's own
+    // cloud app — labelled as exactly that.
     actions.append(
       button("Load a vault file from my cloud app", async () => {
         const picked = await pickFile();
@@ -2369,6 +2738,8 @@ function settingsPanel(): HTMLElement {
         if (!window.confirm(message)) return;
         state.storedBytes = picked.bytes;
         await store.setVaultBytes(picked.bytes);
+        await homeCopy.adopt(picked.bytes);
+        state.homeConflict = null;
         lock("Vault loaded from the file. Unlock to open it.");
       }),
     );
@@ -2409,6 +2780,9 @@ function settingsPanel(): HTMLElement {
     actions.append(toggle);
   }
 
+  if (homeCopy.supported()) {
+    panel.append(homeSettingsSection());
+  }
   panel.append(actions, status);
   panel.append(autofillSettingsSection());
   panel.append(
@@ -2781,6 +3155,39 @@ export async function boot(): Promise<void> {
   state.syncHandle = (await store.getSyncDirHandle().catch(() => undefined)) ?? null;
   state.syncTargetId = (await store.getSyncTargetId().catch(() => undefined)) ?? null;
 
+  // The vault's home: reconcile the inside copy against the
+  // home file before anything is shown. A newer home file
+  // refreshes the inside copy; a conflict is presented at
+  // unlock; a granted folder holding a vault file while the
+  // inside copy is gone becomes the recovery offer on the
+  // welcome screen. Inert on web (no adapter).
+  if (homeCopy.supported()) {
+    if (state.storedBytes) {
+      const rec = await homeCopy.reconcile(state.storedBytes);
+      if (rec.decision.kind === "home-newer" && rec.homeBytes) {
+        state.storedBytes = rec.homeBytes;
+        await store.setVaultBytes(rec.homeBytes);
+      }
+      if (rec.decision.kind === "conflict" && rec.homeBytes) {
+        state.homeConflict = {
+          cacheBytes: state.storedBytes,
+          homeBytes: rec.homeBytes,
+          folderName: rec.folderName ?? "your folder",
+        };
+        state.homeUnlockTarget = "cache";
+      }
+      state.homeNotice = await homeCopy.takePendingNotice();
+    } else {
+      const candidate = await homeCopy.recoveryCandidate();
+      if (candidate) {
+        state.homeRecovery = {
+          folderName: candidate.folderName,
+          bytes: candidate.bytes,
+        };
+      }
+    }
+  }
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden" && state.session && state.settings.lockOnHide) {
       lock();
@@ -2795,7 +3202,7 @@ export async function boot(): Promise<void> {
   void reportAutofillSession(false, 0);
   void onAutofillRequest(async () => {
     await refreshPendingAutofill();
-    if (state.session) afterEnterVault();
+    if (state.session) void afterEnterVault();
     else void renderLocked();
   });
   await renderLocked();

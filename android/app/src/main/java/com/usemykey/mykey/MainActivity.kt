@@ -12,6 +12,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(SensitiveClipboardPlugin::class.java)
         registerPlugin(PasskeyProviderPlugin::class.java)
         registerPlugin(MyKeyAutofillPlugin::class.java)
+        registerPlugin(VaultMirrorPlugin::class.java)
         super.onCreate(savedInstanceState)
         // The whole app is one WebView hosting the unlock and entry
         // screens: FLAG_SECURE keeps secrets out of screenshots and
