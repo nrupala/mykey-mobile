@@ -6,6 +6,22 @@ is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
+- **Permanent release signing — in-place updates from now on.**
+  Android builds shipped so far were debug builds, each signed by
+  the CI machine's throwaway key, so Android refused every update
+  and the app had to be uninstalled and reinstalled (losing the
+  on-device vault copy unless it was exported first). The release
+  APK is now signed in CI with one permanent release key held by
+  2351485 ALBERTA INC. (provided to CI as Actions secrets; the
+  keystore is never in this repository). The release AAB stays
+  unsigned here because Play App Signing signs the store build.
+  One consequence, stated plainly: an install signed with an old
+  debug key cannot be updated over — one final fresh install of a
+  release-signed build is needed; every update after that installs
+  in place. Also fixed: the Android version now comes from
+  package.json (versionName verbatim; versionCode derived as
+  major*10000 + minor*100 + patch) instead of a frozen 1.0.0 / 1.
+
 - **New app logo — the refined key.** The placeholder key is replaced
   by the product mark (owner pick, 2026-10-14): a two-tone gold key
   with a double-ring bow on deep navy (#111D54), drawn as clean

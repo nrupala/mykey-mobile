@@ -1,6 +1,25 @@
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
+import groovy.json.JsonSlurper
+
+// Version: package.json is the single source of truth.
+// versionName = the package version verbatim; versionCode is derived
+// monotonically from it: major*10000 + minor*100 + patch
+// (e.g. 1.3.0 -> 10300). Semver increases keep versionCode increasing;
+// patch is capped at 99 by construction of the scheme.
+def pkgJson = new JsonSlurper().parse(file('../../package.json'))
+def pkgVersionParts = pkgJson.version.tokenize('.').collect { it.toInteger() }
+def derivedVersionCode = pkgVersionParts[0] * 10000 + pkgVersionParts[1] * 100 + pkgVersionParts[2]
+
+// Release signing: the permanent MyKey release key (held by
+// 2351485 ALBERTA INC.) reaches the build ONLY through environment
+// variables — in CI they come from GitHub Actions secrets; the
+// keystore itself is never in this repository. Without the env vars
+// the release build stays unsigned (local-dev behaviour, unchanged).
+def releaseKeystore = System.getenv('MYKEY_KEYSTORE_PATH')
+def hasReleaseKey = releaseKeystore != null && file(releaseKeystore).exists()
+
 android {
     namespace = "com.usemykey.mykey"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -8,8 +27,8 @@ android {
         applicationId "com.usemykey.mykey"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode derivedVersionCode
+        versionName pkgJson.version
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -17,8 +36,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(releaseKeystore)
+                storeType 'JKS'
+                storePassword System.getenv('MYKEY_STORE_PASSWORD')
+                keyAlias System.getenv('MYKEY_KEY_ALIAS')
+                keyPassword System.getenv('MYKEY_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
