@@ -6,6 +6,24 @@ is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
+- **Your vault has a home outside the app (Android).** Your vault is
+  a file; MyKey is its opener. On Android you can now give the vault
+  a home: pick a folder once (for example in your cloud drive) and
+  MyKey keeps the vault file there — `MyKey/vault.mykey`, encrypted
+  as always — updated on every save. The copy inside the app is a
+  working copy, so the app still opens when the folder can't be
+  reached; on open, the newer copy wins, and if both copies changed
+  you are asked at unlock, with the other copy preserved in the
+  folder as a dated file — nothing is ever overwritten on a guess
+  or deleted. Uninstalling the app can no longer take your vault
+  with it: reinstall, and MyKey offers to open the vault found in
+  its folder. Turning the home off in Settings leaves the outside
+  file where it is (deleting it is yours to do, in your file
+  manager). A failed home update is shown in Settings and as a
+  one-line notice at the next unlock — never silent, never blocking
+  your save. The web app has no home copy (browser storage rules)
+  and does not offer one. Client 1.4.0.
+
 - **Permanent release signing — in-place updates from now on.**
   Android builds shipped so far were debug builds, each signed by
   the CI machine's throwaway key, so Android refused every update

@@ -25,6 +25,12 @@ import {
   CLIPBOARD_CLEAR_DEFAULT_SECONDS,
   clampClipboardClearSeconds,
 } from "../platform/clipboard.js";
+import {
+  defaultMirrorBook,
+  defaultMirrorConfig,
+  type MirrorBook,
+  type MirrorConfig,
+} from "./homecopy.js";
 
 const DB_NAME = "mykey-web";
 const STORE = "kv";
@@ -152,5 +158,22 @@ export const store = {
   getLicenceKey: () => idbGet<string>("licence"),
   setLicenceKey: (token: string) => idbSet("licence", token),
   clearLicenceKey: () => idbDelete("licence"),
+  // Vault home (homecopy wave): the user's home-folder choice and
+  // the reconciliation bookkeeping. Digests and timestamps only —
+  // the folder grant itself lives on the native side, and no
+  // vault content is ever stored here beyond the vault bytes
+  // under "vault" above.
+  async getMirrorConfig(): Promise<MirrorConfig> {
+    const raw = await idbGet<Partial<MirrorConfig>>("mirrorConfig");
+    return { ...defaultMirrorConfig(), ...(raw ?? {}) };
+  },
+  setMirrorConfig: (c: MirrorConfig) => idbSet("mirrorConfig", c),
+  clearMirrorConfig: () => idbDelete("mirrorConfig"),
+  async getMirrorBook(): Promise<MirrorBook> {
+    const raw = await idbGet<Partial<MirrorBook>>("mirrorBook");
+    return { ...defaultMirrorBook(), ...(raw ?? {}) };
+  },
+  setMirrorBook: (b: MirrorBook) => idbSet("mirrorBook", b),
+  clearMirrorBook: () => idbDelete("mirrorBook"),
 
 };

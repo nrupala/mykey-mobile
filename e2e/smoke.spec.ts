@@ -260,6 +260,20 @@ test("help sits under the unlock controls on the locked screen", async ({ page }
   expect(box!.y + box!.height).toBeLessThanOrEqual(844);
 });
 
+test("the vault's home is an Android-only offer — absent on web", async ({ page }) => {
+  // The home copy needs the native folder bridge; the web app
+  // must not offer what it cannot do (no SAF in a browser).
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Welcome to MyKey" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "I have a vault in a folder" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Open the vault found in/ })).toHaveCount(0);
+
+  await createVaultAndEnter(page);
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByText("Your vault's home")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Give your vault a home" })).toHaveCount(0);
+});
+
 test("help and about are reachable from the welcome screen", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Welcome to MyKey" })).toBeVisible();
