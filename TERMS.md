@@ -36,6 +36,22 @@ Nothing in these Product Terms excludes or limits a right or liability that cann
 
 These Product Terms are governed by the laws of Alberta and the federal laws of Canada applicable in Alberta. Any litigation concerning the product or these terms must be brought exclusively in the courts located in Calgary, Alberta. Any mediation or arbitration concerning the product or these terms, if used, must be seated and conducted solely in Calgary, Alberta, unless the Company agrees otherwise in writing or applicable law requires otherwise.
 
-## 9. Contact
+## 9. Licence returns, refunds, and lost-key recovery
+
+The MyKey licence is a one-time, perpetual licence for an offline product. The app never contacts the Company’s servers, so the Company cannot observe whether a licence key has been redeemed and cannot disable a key remotely.
+
+(a) **Returns.** Within 30 days of purchase, a licence that has not been redeemed may be returned for store credit. To return a licence, email info@aimlds.org from the email address used for the purchase and confirm in writing that the key has not been redeemed. On return, the licence is recorded as cancelled and will not be re-issued or supported.
+
+(b) **After 30 days.** Once 30 days have passed since purchase, a licence is treated as redeemed and the sale is final, except under paragraph (c).
+
+(c) **Refunds that always stand.** The Company will refund: a duplicate charge; a licence key the Company failed to deliver and cannot recover under paragraph (d); a technical failure the Company cannot fix; and any amount a refund is required by applicable law.
+
+(d) **Lost keys.** A lost licence key is re-sent free of charge. Email info@aimlds.org from the email address used for the purchase; the key is re-sent only to that address. No other personal information is required. A licence that has been returned, refunded, or charged back is void and will not be re-issued.
+
+(e) **Chargebacks.** If a payment is reversed through a payment provider or bank, the licence is void from the date of reversal.
+
+Purchases made through a third-party store are also subject to that store’s own refund process, which the store controls.
+
+## 10. Contact
 
 Questions about these Product Terms may be sent to info@aimlds.org.
