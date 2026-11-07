@@ -39,8 +39,6 @@ export interface AboutInfo {
   ownerUrl: string;
   builderName: string;
   builderUrl: string;
-  referralCode: string;
-  referralLine: string;
   licenceSummary: string;
   termsPointer: string;
   whatsNewPointer: string;
@@ -59,10 +57,6 @@ export function aboutInfo(): AboutInfo {
     ownerUrl: "https://nrupalakolkar.com",
     builderName: "Muse by Meta",
     builderUrl: "https://muse.ai/join",
-    referralCode: "101EEK",
-    referralLine:
-      "join Muse, then redeem code 101EEK in Settings within 48 hours " +
-      "of joining and we both earn tokens.",
     licenceSummary:
       "The MyKey core is proprietary software of 2351485 ALBERTA INC.; " +
       "the interface layer is Apache 2.0.",
