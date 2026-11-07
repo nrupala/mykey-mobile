@@ -103,4 +103,4 @@ offered instead.
 | --- | --- | --- |
 | Built-in help ("How MyKey works") | Implemented | Ships inside the app bundle; fully offline. Canonical text lives in the desktop repo (HELP.md); this copy is byte-identical and the PWA CI fails on drift. |
 | Common questions (FAQ) | Implemented | Same canonical-text rule (FAQ.md). Reachable from the locked/welcome screen — before sign-in — and from Settings. |
-| About screen | Implemented | Version (from package.json), seller 2351485 ALBERTA INC., support info@aimlds.org, linked attribution with referral code 101EEK, licence summary, changelog pointer. Licence/tip block slot reserved (free-tier ruling pending — no purchase content yet). |
+| About screen | Implemented | Version (from package.json), seller 2351485 ALBERTA INC., support info@aimlds.org, linked attribution, licence summary, changelog pointer. Licence/tip block slot reserved (free-tier ruling pending — no purchase content yet). |
