@@ -76,8 +76,7 @@ describe("about info", () => {
     expect(info.supportEmail).toBe("info@aimlds.org");
     expect(info.ownerUrl).toBe("https://nrupalakolkar.com");
     expect(info.builderUrl).toBe("https://muse.ai/join");
-    expect(info.referralCode).toBe("101EEK");
-    expect(info.referralLine).toContain("we both earn tokens");
+    expect(JSON.stringify(info)).not.toContain("101EEK");
     expect(info.licenceSummary).toContain("proprietary");
     expect(info.licenceSummary).toContain("Apache 2.0");
     expect(info.version).toMatch(/^\d+\.\d+\.\d+$/);
