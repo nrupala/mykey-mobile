@@ -744,7 +744,7 @@ function renderAbout(back: () => void): void {
     el("a", { href: info.ownerUrl }, info.ownerName),
     document.createTextNode(" · Built with "),
     el("a", { href: info.builderUrl }, info.builderName),
-    document.createTextNode(` — ${info.referralLine}`),
+    document.createTextNode("."),
   );
   card.append(attribution);
   card.append(el("p", {}, `Licence: ${info.licenceSummary} ${info.termsPointer}`));
