@@ -742,8 +742,6 @@ function renderAbout(back: () => void): void {
   attribution.append(
     document.createTextNode("Owned by "),
     el("a", { href: info.ownerUrl }, info.ownerName),
-    document.createTextNode(" · Built with "),
-    el("a", { href: info.builderUrl }, info.builderName),
     document.createTextNode("."),
   );
   card.append(attribution);
