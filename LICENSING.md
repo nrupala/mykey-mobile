@@ -16,4 +16,4 @@ Every source file carries its bucket's header. Product terms
 code licensing.
 
 Owned by [Nrupal Akolkar](https://nrupalakolkar.com) · Built with
-[Muse by Meta](https://muse.ai/join).
+Muse by Meta.
