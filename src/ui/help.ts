@@ -37,8 +37,6 @@ export interface AboutInfo {
   supportEmail: string;
   ownerName: string;
   ownerUrl: string;
-  builderName: string;
-  builderUrl: string;
   licenceSummary: string;
   termsPointer: string;
   whatsNewPointer: string;
@@ -55,8 +53,6 @@ export function aboutInfo(): AboutInfo {
     supportEmail: BRAND.supportEmail,
     ownerName: "Nrupal Akolkar",
     ownerUrl: "https://nrupalakolkar.com",
-    builderName: "Muse by Meta",
-    builderUrl: "https://muse.ai/join",
     licenceSummary:
       "The MyKey core is proprietary software of 2351485 ALBERTA INC.; " +
       "the interface layer is Apache 2.0.",

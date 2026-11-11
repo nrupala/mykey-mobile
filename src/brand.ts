@@ -24,7 +24,7 @@ export const BRAND = {
   supportEmail: "info@aimlds.org",
   appId: "com.usemykey.mykey",
   vendor: "2351485 ALBERTA INC.",
-  attribution: "Owned by Nrupal Akolkar · Built with Muse by Meta",
+  attribution: "Owned by Nrupal Akolkar",
   /** Licence purchase + tip destinations — configuration, not a
    * checkout: the product site behind them is a separate piece,
    * and the app only ever links to these constants. The Android
