@@ -49,8 +49,9 @@ weakens one fails CI until it is deliberate and documented.
 - **No telemetry, no analytics, no update checks.** The only
   external references in the client are the user-invoked
   allowlist, gated by test: the Apache licence text in headers,
-  the attribution links (`nrupalakolkar.com`, `muse.ai/join`),
-  and the support address (`info@aimlds.org`). Licence
+  the attribution link (`nrupalakolkar.com`; the Muse by Meta
+  builder credit is plain text, unlinked), and the support
+  address (`info@aimlds.org`). Licence
   verification is fully offline.
 - **No WebDAV (yet), anywhere.** No client ships a network sync
   provider. The standing rule for any future one: HTTPS only,

@@ -95,7 +95,6 @@ describe("transport gates — no network surface", () => {
     const allowed = new Set([
       "http://www.apache.org/licenses/LICENSE-2.0",
       "https://nrupalakolkar.com",
-      "https://muse.ai/join",
       // Licensing wave amendment, in the same change, per this
       // gate's own rule (mirrors the desktop gate): the brand-
       // configured Buy / Tip destinations from src/brand.ts. Like

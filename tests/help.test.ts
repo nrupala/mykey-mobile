@@ -75,8 +75,8 @@ describe("about info", () => {
     expect(info.vendor).toBe("2351485 ALBERTA INC.");
     expect(info.supportEmail).toBe("info@aimlds.org");
     expect(info.ownerUrl).toBe("https://nrupalakolkar.com");
-    expect(info.builderUrl).toBe("https://muse.ai/join");
     expect(JSON.stringify(info)).not.toContain("101EEK");
+    expect(Object.values(info).join(" ")).not.toContain("muse.ai/join");
     expect(info.licenceSummary).toContain("proprietary");
     expect(info.licenceSummary).toContain("Apache 2.0");
     expect(info.version).toMatch(/^\d+\.\d+\.\d+$/);

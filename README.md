@@ -175,4 +175,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Release notes:
 ---
 
 Owned by [Nrupal Akolkar](https://nrupalakolkar.com) · Built with
-[Muse by Meta](https://muse.ai/join). Seller: 2351485 ALBERTA INC. Support: info@aimlds.org
+Muse by Meta. Seller: 2351485 ALBERTA INC. Support: info@aimlds.org
