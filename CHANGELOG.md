@@ -6,6 +6,14 @@ is Vault v3 (desktop engine 2.2.0).
 
 ## [Unreleased]
 
+- **Docs: the proper-update specification.** `docs/UPDATE_SPEC.md`
+  defines the core-freeze standard (storage breadth, corrections,
+  performance, autofill, vault-law compliance), the evidence each
+  row needs, the signed-artifact hash report, and the build route.
+  The README's Android section now matches the workflow: the
+  release APK is signed with the permanent key; the old text said
+  it was unsigned.
+
 - **Your vault has a home outside the app (Android).** Your vault is
   a file; MyKey is its opener. On Android you can now give the vault
   a home: pick a folder once (for example in your cloud drive) and
