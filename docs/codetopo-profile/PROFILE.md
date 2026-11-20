@@ -7,31 +7,17 @@ submits or changes anything. Read this first; the graph snapshot beside it
 (`snapshot.json`, `stats.json`) is the measured evidence.
 
 - **Repo:** nrupala/mykey-mobile (public)
-- **Commit profiled:** `071ca4044c4ac9fbe8d6d7a054d40070a5d7880d` (main, 2026-11-17)
-- **Engine:** codetopo 0.9.1 · index run 2026-11-18
-- **Graph:** 102 files walked · 0 failed · 3,445 nodes · 9,390 edges · audit chain valid (3 entries, head `f60ce10f…f988d`)
-- **Nodes by kind:** function 376 · method 248 · class 54 · interface 76 · module 102 · file 102 · variable 483 · doc 17 · external 1,985 · package 2
-- **Edges by kind:** calls 4,183 · reads 2,251 · contains 1,458 · defines 1,009 · imports 313 · writes 147 · inherits 21 · implements 8
+- **Commit profiled:** `a5faf1408c5a634f96a0a54093965790ed06a02d` (main)
+- **Engine:** codetopo 0.9.1 + full-language program (engine built from codetopo main `d71509d1` — all sixteen program extractors merged) · index run 2026-11-19
+- **Graph:** 125 files walked · 0 failed · 3,977 nodes · 10,870 edges · audit chain valid (3 entries, head `0567bd09…d23c`)
+- **Nodes by kind:** external 2,322 · variable 487 · function 377 · method 355 · file 125 · module 125 · class 89 · interface 77 · doc 18 · package 2
+- **Edges by kind:** calls 4,785 · reads 2,701 · contains 1,653 · defines 1,138 · imports 348 · writes 210 · inherits 27 · implements 8
 
 ## Coverage honesty
 
-Codetopo extracts Rust, TypeScript/JavaScript and Python, plus Markdown
-docs as Doc nodes. In this repo the extracted part is the TypeScript
-client — the PWA/Android web client under `src/`, the browser extension
-under `extension/src/`, the test suites, and the Python fixture
-generators — plus 17 Markdown files as Doc nodes only.
+**Re-profiled 2026-11-19** with the full-language engine (Codetopo extractor program, 2026-11-18 ruling): every language this repo is written in is now extracted at symbol level. First profile: 2026-11-18 (Codetopo 0.9.1).
 
-**Residual — not in the graph:** the Android native layer is **Kotlin**
-(20 `.kt` files under `android/app/src/main/java/com/usemykey/mykey/` —
-`MainActivity`, the autofill service and its helpers, the passkey
-credential-provider service, and their tests) plus one Java file
-(`SensitiveClipboardPlugin.java`). Codetopo 0.9.1 has no Kotlin or Java
-extractor, so none of those symbols appear in this graph. That Kotlin
-residual is profiled here by name only and awaits its Stage-3 extractor
-under the Codetopo full-language program (Kotlin is first in that
-sequence, for the Android apps). XML/Gradle/HTML/CSS files are likewise
-not parsed into the graph; read them directly.
-
+Codetopo now extracts every language in the full-language program (Rust, TypeScript/JavaScript, Python, Kotlin, C, Java, Go, Shell, C++, Swift, Ruby, R, Julia, C#, PHP, Scala, Haskell, Elixir, Lua), plus Markdown as Doc nodes. The TypeScript client and Python fixture generators are extracted as before, and the Android native layer named as the residual in the first profile is now in the graph at full symbol level: the 20 Kotlin files under `android/app/src/main/java/com/usemykey/mykey/` (`MainActivity`, the autofill service and its helpers, the passkey credential-provider service, and their tests — Kotlin extractor, program PR #153) plus the one Java file (`SensitiveClipboardPlugin.java` — Java extractor, program PR #156). **Still not in the graph:** the Gradle build scripts (Groovy/Kotlin DSL — not a program language) and XML/JSON configuration; read them directly.
 ## Topology
 
 One TypeScript client for MyKey, the zero-trust password manager,
